@@ -86,7 +86,7 @@
     <h1>♟️♙ 멀티 체스 대전 플랫폼</h1>
     <div class="status-bar">
         <span>🌐 체스 통합 버전 · 합법적인 수만 표시</span>
-        <span style="color: #66fcf1; font-weight: bold;">Chess v1.3</span>
+        <span style="color: #66fcf1; font-weight: bold;">Chess v1.4</span>
     </div>
     <!-- [뷰 1] 로그인 / 회원가입 화면 -->
     <div id="view-auth" class="card auth-box">
@@ -438,6 +438,7 @@
             delete globalData.rooms[currentRoomId];
             await removeSpecificData(ROOM_PATH + '/' + currentRoomId);
             currentRoomId = null;
+            uiSelectedSquare=null; uiSelectedRoomId=null; uiSelectedTurnKey=null;
             localStorage.removeItem('chess_session_room');
             switchView('view-lobby');
             return;
@@ -942,6 +943,7 @@
         if (!currentUser || !globalData || !globalData.rooms || !globalData.rooms[currentRoomId]) {
             if (turnTimer) { clearInterval(turnTimer); turnTimer = null; }
             currentRoomId = null;
+            uiSelectedSquare=null; uiSelectedRoomId=null; uiSelectedTurnKey=null;
             localStorage.removeItem('chess_session_room');
             switchView('view-lobby');
             return;
@@ -1130,7 +1132,7 @@
         if(!nextMoves.length) winner=inCheck?movingTeam:'draw';
         else if(room.chessState.halfmove>=100) winner='draw';
         else if(room.board.every(p=>!p || ['k','b','n'].includes(chessType(p))) && room.board.filter(p=>p).length<=4) winner='draw';
-        room.winner=winner; room.status=winner?'ended':'playing'; room.turnStartedAt=winner?null:Date.now(); room.chessState.selected=null; room.aiThinking=false;
+        room.winner=winner; room.status=winner?'ended':'playing'; room.turnStartedAt=winner?null:Date.now(); room.chessState.selected=null; room.aiThinking=false; uiSelectedSquare=null;
         if(winner && !room.scoreProcessed){
             room.scoreProcessed=true;
             if(winner!=='draw'&&room.players){ for(const p of Object.values(room.players)){ if(!p.isAi&&p.team===winner&&p.id!==ADMIN_ID){const u=globalData.users[p.id];if(u){u.omokScore=(u.omokScore||0)+1;await saveSpecificData('users/'+p.id+'/omokScore',u.omokScore);}} } }
@@ -1196,12 +1198,24 @@
             timerTurnKey=null;
         }
         const boardEl=document.getElementById('omok-board');boardEl.className='chess-board';boardEl.innerHTML='';
-        const selected=state.selected; const legal=selected!==null&&selected!==undefined?legalMoves(board,state,color,selected):[]; const legalSet=new Map(legal.map(m=>[m.to,m]));
+        // 서버 폴링(renderGameBoard 재호출) 때도 선택 상태가 사라지지 않도록 로컬 선택값을 사용합니다.
+        const currentTurnKey=`${currentRoomId}:${room.turnTeam}:${room.turnStartedAt||0}`;
+        if(uiSelectedRoomId!==currentRoomId || uiSelectedTurnKey!==currentTurnKey || room.status!=='playing') uiSelectedSquare=null;
+        uiSelectedRoomId=currentRoomId; uiSelectedTurnKey=currentTurnKey;
+        const selected=uiSelectedSquare; const legal=selected!==null&&selected!==undefined?legalMoves(board,state,color,selected):[]; const legalSet=new Map(legal.map(m=>[m.to,m]));
         for(let i=0;i<64;i++){const [r,c]=rc(i),cell=document.createElement('div');cell.className=`chess-cell ${(r+c)%2?'dark':'light'} ${i===selected?'selected':''} ${i===room.lastMove?'last':''}`;cell.dataset.square=chessNotation(i);
             if((i%8===0))cell.innerHTML+=`<span class="rank-label">${8-r}</span>`;if(r===7)cell.innerHTML+=`<span class="file-label">${'abcdefgh'[c]}</span>`;
             if(board[i]){const piece=document.createElement('span');piece.className=`chess-piece ${chessColor(board[i])==='w'?'white-piece':'black-piece'}`;piece.textContent=PIECE_UNICODE[board[i]];cell.appendChild(piece);}
             if(legalSet.has(i)){const dot=document.createElement('span');dot.className=board[i]?'capture-dot':'move-dot';cell.appendChild(dot);}
-            if(myTurn){cell.onclick=()=>{if(selected!==null&&legalSet.has(i))placeChess(selected,i);else if(chessColor(board[i])===color){room.chessState.selected=i;renderGameBoard(room);}};}
+            if(myTurn){cell.onclick=()=>{
+                if(selected!==null&&selected!==undefined&&legalSet.has(i)){
+                    uiSelectedSquare=null;
+                    placeChess(selected,i);
+                }else if(chessColor(board[i])===color){
+                    uiSelectedSquare=i;
+                    renderGameBoard(room);
+                }
+            };}
             boardEl.appendChild(cell);
         }
         renderGameChat(room); checkAndTriggerAiTurn();
@@ -1273,6 +1287,7 @@
         const room = globalData.rooms[currentRoomId];
         if (!room) {
             currentRoomId = null;
+            uiSelectedSquare=null; uiSelectedRoomId=null; uiSelectedTurnKey=null;
             localStorage.removeItem('chess_session_room');
             switchView('view-lobby');
             return;
