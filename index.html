@@ -86,7 +86,7 @@
     <h1>♟️♙ 멀티 체스 대전 플랫폼</h1>
     <div class="status-bar">
         <span>🌐 체스 통합 버전 · 합법적인 수만 표시</span>
-        <span style="color: #66fcf1; font-weight: bold;">Chess v1.2</span>
+        <span style="color: #66fcf1; font-weight: bold;">Chess v1.3</span>
     </div>
     <!-- [뷰 1] 로그인 / 회원가입 화면 -->
     <div id="view-auth" class="card auth-box">
@@ -270,6 +270,7 @@
     let hasPlayedConfetti = false;
     let turnTimer = null;
     let timeLeft = 30;
+    let timerTurnKey = null;
     let whisperTarget = null; 
     window.addEventListener('keydown', async (e) => {
         if (e.key === 'Escape' && currentRoomId && currentUser) {
@@ -1096,7 +1097,7 @@
         await fetchSystemData(); const room=globalData.rooms[currentRoomId]; if(!room) return;
         const players=Object.values(room.players||{}), blackP=players.filter(p=>p.team==='black'), whiteP=players.filter(p=>p.team==='white');
         if(!blackP.length || !whiteP.length) return alert('흑(백) 팀에 각각 최소 한 명(또는 AI)씩 참가해야 시작할 수 있습니다!');
-        room.status='playing'; room.board=[...CHESS_START]; room.boardSize=8; room.turnTeam='black'; room.winner=null; room.pausedBy=''; room.scoreProcessed=false; room.lastMove=null; room.aiThinking=false;
+        room.status='playing'; room.board=[...CHESS_START]; room.boardSize=8; room.turnTeam='black'; room.turnStartedAt=Date.now(); room.winner=null; room.pausedBy=''; room.scoreProcessed=false; room.lastMove=null; room.aiThinking=false;
         room.chessState={castling:{wK:true,wQ:true,bK:true,bQ:true},enPassant:null,halfmove:0,fullmove:1,selected:null};
         hasPlayedConfetti=false; await saveSpecificData(ROOM_PATH+'/'+currentRoomId,room); renderRoomOrGameView();
     }
@@ -1129,7 +1130,7 @@
         if(!nextMoves.length) winner=inCheck?movingTeam:'draw';
         else if(room.chessState.halfmove>=100) winner='draw';
         else if(room.board.every(p=>!p || ['k','b','n'].includes(chessType(p))) && room.board.filter(p=>p).length<=4) winner='draw';
-        room.winner=winner; room.status=winner?'ended':'playing'; room.chessState.selected=null; room.aiThinking=false;
+        room.winner=winner; room.status=winner?'ended':'playing'; room.turnStartedAt=winner?null:Date.now(); room.chessState.selected=null; room.aiThinking=false;
         if(winner && !room.scoreProcessed){
             room.scoreProcessed=true;
             if(winner!=='draw'&&room.players){ for(const p of Object.values(room.players)){ if(!p.isAi&&p.team===winner&&p.id!==ADMIN_ID){const u=globalData.users[p.id];if(u){u.omokScore=(u.omokScore||0)+1;await saveSpecificData('users/'+p.id+'/omokScore',u.omokScore);}} } }
@@ -1163,11 +1164,37 @@
         if(room.status==='paused'){if(turnTimer){clearInterval(turnTimer);turnTimer=null;}overlay.classList.remove('hidden');pauseText.innerHTML=`<strong>${room.pausedBy||'누군가'}</strong>님이 게임을 일시정지했습니다.<br><span style="font-size:12px;color:#ffd700;">(정지한 사람 또는 관리자만 해제할 수 있습니다)</span>`;}else overlay.classList.add('hidden');
         const pauseBtn=document.getElementById('btn-pause-game'); if(room.status==='ended')pauseBtn.classList.add('hidden'); else {pauseBtn.classList.remove('hidden');pauseBtn.innerText=room.status==='paused'?(room.pausedBy===((currentUser.id===ADMIN_ID)?'관리자':currentUser.id)?'▶️ 게임 재개 (ESC)':'⏸️ 일시정지됨'):'⏸️ 일시정지 (ESC)';pauseBtn.disabled=room.status==='paused'&&room.pausedBy!==((currentUser.id===ADMIN_ID)?'관리자':currentUser.id);pauseBtn.style.opacity=pauseBtn.disabled?'0.5':'1';}
         const my=room.players[currentUser.id], myTeam=my?my.team:null, isSpectator=myTeam==='spectator', color=myTeam==='black'?'b':'w', active=Object.values(room.players||{}).find(p=>p.team===room.turnTeam), aiTurn=active&&active.isAi, myTurn=room.status==='playing'&&room.turnTeam===myTeam&&!aiTurn&&!isSpectator;
-        if(room.status==='playing'&&!turnTimer){timeLeft=30;turnTimer=setInterval(async()=>{timeLeft--;const tn=room.turnTeam==='black'?'⚫ 흑':'⚪ 백';badge.innerHTML=`${tn}${aiTurn?' 🤖(AI 생각 중)':''}의 차례입니다. (<span style="color:${timeLeft<=5?'#ff4d4d':'#66fcf1'}">⏳ ${Math.max(0,timeLeft)}초</span>)${isSpectator?' <span style="color:#319795">(관전 중)</span>':''}`;
-            if(timeLeft<=0){clearInterval(turnTimer);turnTimer=null;const host=room.hostId===currentUser.id||currentUser.id===ADMIN_ID;if(host&&!aiTurn){await fetchSystemData();const cr=globalData.rooms[currentRoomId];if(!cr||cr.status!=='playing')return;const cc=cr.turnTeam==='black'?'b':'w',ms=legalMoves(cr.board,cr.chessState||state,cc);if(ms.length)await makeChessMove(cr,ms[Math.floor(Math.random()*ms.length)],'q');}}
-        },1000);} else if(room.status!=='playing'&&turnTimer){clearInterval(turnTimer);turnTimer=null;}
-        if(room.status==='playing'){badge.innerHTML=`${room.turnTeam==='black'?'⚫ 흑':'⚪ 백'}${aiTurn?' 🤖(AI 생각 중)':''}의 차례입니다. (<span style="color:#66fcf1;">⏳ ${timeLeft}초</span>)${isSpectator?' <span style="color:#319795">(관전 중)</span>':''}`;}
-        else if(room.status==='ended'){let result=room.winner==='draw'?'🤝 무승부입니다!':(myTeam===room.winner?`🎉 축하합니다! ${room.winner==='black'?'흑':'백'} 승리입니다!`:isSpectator?`🏁 ${room.winner==='black'?'흑':'백'} 승리!`:`😢 아쉽습니다. ${room.winner==='black'?'흑':'백'} 승리입니다.`);badge.innerHTML=result;document.getElementById('btn-back-lobby').classList.remove('hidden');}
+        if(room.status==='playing'){
+            const turnKey = `${currentRoomId}:${room.turnTeam}:${room.turnStartedAt||0}`;
+            if(!room.turnStartedAt) timeLeft=30; else timeLeft=Math.max(0,30-Math.floor((Date.now()-room.turnStartedAt)/1000));
+            if(timerTurnKey!==turnKey){
+                if(turnTimer) clearInterval(turnTimer);
+                timerTurnKey=turnKey;
+                turnTimer=setInterval(async()=>{
+                    const fresh=globalData.rooms[currentRoomId];
+                    if(!fresh || fresh.status!=='playing'){clearInterval(turnTimer);turnTimer=null;timerTurnKey=null;return;}
+                    const remain=Math.max(0,30-Math.floor((Date.now()-(fresh.turnStartedAt||Date.now()))/1000)); timeLeft=remain;
+                    const freshActive=Object.values(fresh.players||{}).find(p=>p.team===fresh.turnTeam), freshAi=!!(freshActive&&freshActive.isAi);
+                    const tn=fresh.turnTeam==='black'?'⚫ 흑':'⚪ 백';
+                    badge.innerHTML=`${tn}${freshAi?' 🤖(AI 생각 중)':''}의 차례입니다. (<span style="color:${remain<=5?'#ff4d4d':'#66fcf1'}">⏳ ${remain}초</span>)${isSpectator?' <span style="color:#319795">(관전 중)</span>':''}`;
+                    if(remain<=0){
+                        clearInterval(turnTimer);turnTimer=null;
+                        const host=fresh.hostId===currentUser.id||currentUser.id===ADMIN_ID;
+                        const timeoutKey=`${currentRoomId}:${fresh.turnTeam}:${fresh.turnStartedAt||0}`;
+                        if(host&&!freshAi&&timeoutKey===turnKey){
+                            timerTurnKey=`${turnKey}:done`;
+                            const cc=fresh.turnTeam==='black'?'b':'w', ms=legalMoves(fresh.board,fresh.chessState||state,cc);
+                            if(ms.length) await makeChessMove(fresh,ms[Math.floor(Math.random()*ms.length)],'q');
+                        }
+                    }
+                },1000);
+            }
+            const tn=room.turnTeam==='black'?'⚫ 흑':'⚪ 백';
+            badge.innerHTML=`${tn}${aiTurn?' 🤖(AI 생각 중)':''}의 차례입니다. (<span style="color:${timeLeft<=5?'#ff4d4d':'#66fcf1'}">⏳ ${timeLeft}초</span>)${isSpectator?' <span style="color:#319795">(관전 중)</span>':''}`;
+        } else {
+            if(turnTimer){clearInterval(turnTimer);turnTimer=null;}
+            timerTurnKey=null;
+        }
         const boardEl=document.getElementById('omok-board');boardEl.className='chess-board';boardEl.innerHTML='';
         const selected=state.selected; const legal=selected!==null&&selected!==undefined?legalMoves(board,state,color,selected):[]; const legalSet=new Map(legal.map(m=>[m.to,m]));
         for(let i=0;i<64;i++){const [r,c]=rc(i),cell=document.createElement('div');cell.className=`chess-cell ${(r+c)%2?'dark':'light'} ${i===selected?'selected':''} ${i===room.lastMove?'last':''}`;cell.dataset.square=chessNotation(i);
