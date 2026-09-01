@@ -86,7 +86,7 @@
     <h1>♟️♙ 멀티 체스 대전 플랫폼</h1>
     <div class="status-bar">
         <span>🌐 체스 통합 버전 · 합법적인 수만 표시</span>
-        <span style="color: #66fcf1; font-weight: bold;">Chess v1.1</span>
+        <span style="color: #66fcf1; font-weight: bold;">Chess v1.2</span>
     </div>
     <!-- [뷰 1] 로그인 / 회원가입 화면 -->
     <div id="view-auth" class="card auth-box">
@@ -1163,7 +1163,7 @@
         if(room.status==='paused'){if(turnTimer){clearInterval(turnTimer);turnTimer=null;}overlay.classList.remove('hidden');pauseText.innerHTML=`<strong>${room.pausedBy||'누군가'}</strong>님이 게임을 일시정지했습니다.<br><span style="font-size:12px;color:#ffd700;">(정지한 사람 또는 관리자만 해제할 수 있습니다)</span>`;}else overlay.classList.add('hidden');
         const pauseBtn=document.getElementById('btn-pause-game'); if(room.status==='ended')pauseBtn.classList.add('hidden'); else {pauseBtn.classList.remove('hidden');pauseBtn.innerText=room.status==='paused'?(room.pausedBy===((currentUser.id===ADMIN_ID)?'관리자':currentUser.id)?'▶️ 게임 재개 (ESC)':'⏸️ 일시정지됨'):'⏸️ 일시정지 (ESC)';pauseBtn.disabled=room.status==='paused'&&room.pausedBy!==((currentUser.id===ADMIN_ID)?'관리자':currentUser.id);pauseBtn.style.opacity=pauseBtn.disabled?'0.5':'1';}
         const my=room.players[currentUser.id], myTeam=my?my.team:null, isSpectator=myTeam==='spectator', color=myTeam==='black'?'b':'w', active=Object.values(room.players||{}).find(p=>p.team===room.turnTeam), aiTurn=active&&active.isAi, myTurn=room.status==='playing'&&room.turnTeam===myTeam&&!aiTurn&&!isSpectator;
-        if(room.status==='playing'&&!turnTimer){timeLeft=30;turnTimer=setInterval(async()=>{timeLeft--;const tn=room.turnTeam==='black'?'⚫ 흑':'⚪ 백';badge.innerHTML=`${tn} 차례 (<span style="color:${timeLeft<=5?'#ff4d4d':'#66fcf1'}">⏳ ${Math.max(0,timeLeft)}초</span>)`;
+        if(room.status==='playing'&&!turnTimer){timeLeft=30;turnTimer=setInterval(async()=>{timeLeft--;const tn=room.turnTeam==='black'?'⚫ 흑':'⚪ 백';badge.innerHTML=`${tn}${aiTurn?' 🤖(AI 생각 중)':''}의 차례입니다. (<span style="color:${timeLeft<=5?'#ff4d4d':'#66fcf1'}">⏳ ${Math.max(0,timeLeft)}초</span>)${isSpectator?' <span style="color:#319795">(관전 중)</span>':''}`;
             if(timeLeft<=0){clearInterval(turnTimer);turnTimer=null;const host=room.hostId===currentUser.id||currentUser.id===ADMIN_ID;if(host&&!aiTurn){await fetchSystemData();const cr=globalData.rooms[currentRoomId];if(!cr||cr.status!=='playing')return;const cc=cr.turnTeam==='black'?'b':'w',ms=legalMoves(cr.board,cr.chessState||state,cc);if(ms.length)await makeChessMove(cr,ms[Math.floor(Math.random()*ms.length)],'q');}}
         },1000);} else if(room.status!=='playing'&&turnTimer){clearInterval(turnTimer);turnTimer=null;}
         if(room.status==='playing'){badge.innerHTML=`${room.turnTeam==='black'?'⚫ 흑':'⚪ 백'}${aiTurn?' 🤖(AI 생각 중)':''}의 차례입니다. (<span style="color:#66fcf1;">⏳ ${timeLeft}초</span>)${isSpectator?' <span style="color:#319795">(관전 중)</span>':''}`;}
