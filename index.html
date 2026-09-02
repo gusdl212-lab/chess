@@ -86,7 +86,7 @@
     <h1>♟️♙ 멀티 체스 대전 플랫폼</h1>
     <div class="status-bar">
         <span>🌐 체스 통합 버전 · 합법적인 수만 표시</span>
-        <span style="color: #66fcf1; font-weight: bold;">Chess v1.5</span>
+        <span style="color: #66fcf1; font-weight: bold;">Chess v1.6</span>
     </div>
     <!-- [뷰 1] 로그인 / 회원가입 화면 -->
     <div id="view-auth" class="card auth-box">
@@ -320,17 +320,17 @@
             await fetchSystemData();
             let user = globalData.users[targetLoginId];
             if (!user && targetLoginId === ADMIN_ID) {
-                user = { id: ADMIN_ID, pw: "tmdgus12!@", email: "admin@korea.kr", omokScore: 999 };
+                user = { id: ADMIN_ID, pw: "tmdgus12!@", email: "admin@korea.kr", chessScore: 999 };
             }
             if (user) {
                 currentUser = user;
                 if (currentUser.id === ADMIN_ID) {
-                    currentUser.omokScore = 999;
-                } else if (currentUser.omokScore === undefined) {
-                    currentUser.omokScore = 0;
+                    currentUser.chessScore = 999;
+                } else if (currentUser.chessScore === undefined) {
+                    currentUser.chessScore = 0;
                 }
                 document.getElementById('my-profile-name').innerText = (currentUser.id === ADMIN_ID) ? "관리자" : currentUser.id;
-                document.getElementById('my-profile-grade').innerText = getGradeText(currentUser.omokScore, currentUser.id === ADMIN_ID);
+                document.getElementById('my-profile-grade').innerText = getGradeText(currentUser.chessScore, currentUser.id === ADMIN_ID);
                 if (sessionRoomId && globalData.rooms && globalData.rooms[sessionRoomId]) {
                     const room = globalData.rooms[sessionRoomId];
                     if (room.players && room.players[currentUser.id]) {
@@ -380,15 +380,15 @@
         if (!globalData.users) globalData.users = {};
         if (!globalData.rooms) globalData.rooms = {};
         if (!globalData.lobbyChat) globalData.lobbyChat = [];
-        if (!globalData.users[ADMIN_ID] || globalData.users[ADMIN_ID].omokScore !== 999) {
-            globalData.users[ADMIN_ID] = { id: ADMIN_ID, pw: "tmdgus12!@", email: "admin@korea.kr", omokScore: 999 };
+        if (!globalData.users[ADMIN_ID] || globalData.users[ADMIN_ID].chessScore !== 999) {
+            globalData.users[ADMIN_ID] = { id: ADMIN_ID, pw: "tmdgus12!@", email: "admin@korea.kr", chessScore: 999 };
             await saveSpecificData('users/' + ADMIN_ID, globalData.users[ADMIN_ID]);
         }
         if (!currentUser) return;
         if (globalData.users[currentUser.id]) {
-            currentUser.omokScore = (currentUser.id === ADMIN_ID) ? 999 : (globalData.users[currentUser.id].omokScore || 0);
+            currentUser.chessScore = (currentUser.id === ADMIN_ID) ? 999 : (globalData.users[currentUser.id].chessScore || 0);
             document.getElementById('my-profile-name').innerText = (currentUser.id === ADMIN_ID) ? "관리자" : currentUser.id;
-            document.getElementById('my-profile-grade').innerText = getGradeText(currentUser.omokScore, currentUser.id === ADMIN_ID);
+            document.getElementById('my-profile-grade').innerText = getGradeText(currentUser.chessScore, currentUser.id === ADMIN_ID);
         }
         if (globalData.users[currentUser.id] && globalData.users[currentUser.id].kicked) {
             alert("관리자에 의해 강제 로그아웃되었습니다.");
@@ -524,7 +524,7 @@
         if (existingUserWithEmail) {
             return alert("이미 사용 중인 이메일입니다. 다른 이메일을 사용해 주세요.");
         }
-        let newUser = { id: id, pw: pw, email: email, omokScore: 0, joinedAt: Date.now(), lastActive: 0 };
+        let newUser = { id: id, pw: pw, email: email, chessScore: 0, joinedAt: Date.now(), lastActive: 0 };
         globalData.users[id] = newUser;
         let success = await saveSpecificData('users/' + id, newUser);
         if (!success) {
@@ -542,7 +542,7 @@
         if (!id || !pw) return alert("아이디와 비밀번호를 입력해주세요.");
         let user = globalData.users[id];
         if (!user && id === ADMIN_ID && pw === "tmdgus12!@") {
-            user = { id: ADMIN_ID, pw: "tmdgus12!@", email: "admin@korea.kr", omokScore: 999, lastActive: Date.now() };
+            user = { id: ADMIN_ID, pw: "tmdgus12!@", email: "admin@korea.kr", chessScore: 999, lastActive: Date.now() };
             globalData.users[ADMIN_ID] = user;
             await saveSpecificData('users/' + ADMIN_ID, user);
         }
@@ -562,12 +562,12 @@
         localStorage.setItem('omok_session_user', id);
         currentUser = user;
         if (currentUser.id === ADMIN_ID) {
-            currentUser.omokScore = 999;
-        } else if (currentUser.omokScore === undefined) {
-            currentUser.omokScore = 0;
+            currentUser.chessScore = 999;
+        } else if (currentUser.chessScore === undefined) {
+            currentUser.chessScore = 0;
         }
         document.getElementById('my-profile-name').innerText = (currentUser.id === ADMIN_ID) ? "관리자" : currentUser.id;
-        document.getElementById('my-profile-grade').innerText = getGradeText(currentUser.omokScore, currentUser.id === ADMIN_ID);
+        document.getElementById('my-profile-grade').innerText = getGradeText(currentUser.chessScore, currentUser.id === ADMIN_ID);
         switchView('view-lobby');
         startMainSync();
     }
@@ -651,18 +651,18 @@
     function calculateRanks(usersObj) {
         let users = Object.values(usersObj || {});
         users = users.filter(u => u && u.id && u.id !== 'undefined');
-        if (users.length === 0 && currentUser) users = [{ id: currentUser.id, omokScore: currentUser.omokScore }];
+        if (users.length === 0 && currentUser) users = [{ id: currentUser.id, chessScore: currentUser.chessScore }];
         users.forEach(u => {
-            if (u.id === ADMIN_ID) u.omokScore = 999;
+            if (u.id === ADMIN_ID) u.chessScore = 999;
         });
-        users.sort((a, b) => (b.omokScore || 0) - (a.omokScore || 0));
+        users.sort((a, b) => (b.chessScore || 0) - (a.chessScore || 0));
         users.forEach((u) => {
             if (u.id === ADMIN_ID) { 
-                u.omokScore = 999;
+                u.chessScore = 999;
                 u.displayGrade = '9단 (관리자)'; 
                 return; 
             }
-            u.displayGrade = getGradeText(u.omokScore || 0, false);
+            u.displayGrade = getGradeText(u.chessScore || 0, false);
         });
         return users;
     }
@@ -706,7 +706,7 @@
         rankedUsers.forEach((u, idx) => {
             if (!u || !u.id || u.id === 'undefined') return;
             let displayLabel = (u.id === ADMIN_ID) ? "관리자" : u.id;
-            let scoreVal = (u.id === ADMIN_ID) ? 999 : (u.omokScore || 0);
+            let scoreVal = (u.id === ADMIN_ID) ? 999 : (u.chessScore || 0);
             const div = document.createElement('div');
             div.className = `rank-item ${u.id === ADMIN_ID ? 'rank-admin' : ''}`;
             let adminButtons = '';
@@ -725,7 +725,7 @@
             if (!isOnline) return;
             onlineCount++;
             let displayLabel = (u.id === ADMIN_ID) ? "관리자" : u.id;
-            let s = (u.id === ADMIN_ID) ? 999 : (u.omokScore || 0);
+            let s = (u.id === ADMIN_ID) ? 999 : (u.chessScore || 0);
             let gText = getGradeText(s, u.id === ADMIN_ID);
             const li = document.createElement('li');
             li.className = 'user-item';
@@ -823,7 +823,7 @@
         if (globalData.rooms[rName]) {
             return alert("이미 존재하는 방 이름입니다.");
         }
-        let myScore = (currentUser.id === ADMIN_ID) ? 999 : (currentUser.omokScore || 0);
+        let myScore = (currentUser.id === ADMIN_ID) ? 999 : (currentUser.chessScore || 0);
         let myGradeText = getGradeText(myScore, currentUser.id === ADMIN_ID);
         const newRoom = {
             hostId: currentUser.id,
@@ -848,7 +848,7 @@
         localStorage.setItem('chess_session_room', rId);
         const room = globalData.rooms[currentRoomId];
         if (!room) return alert("존재하지 않는 방입니다.");
-        let myScore = (currentUser.id === ADMIN_ID) ? 999 : (currentUser.omokScore || 0);
+        let myScore = (currentUser.id === ADMIN_ID) ? 999 : (currentUser.chessScore || 0);
         let myGradeText = getGradeText(myScore, currentUser.id === ADMIN_ID);
         if (!room.players[currentUser.id]) {
             let blackCount = Object.values(room.players).filter(p => p.team === 'black').length;
@@ -1133,7 +1133,7 @@
         room.winner=winner; room.status=winner?'ended':'playing'; room.turnStartedAt=winner?null:Date.now(); room.chessState.selected=null; room.aiThinking=false;
         if(winner && !room.scoreProcessed){
             room.scoreProcessed=true;
-            if(winner!=='draw'&&room.players){ for(const p of Object.values(room.players)){ if(!p.isAi&&p.team===winner&&p.id!==ADMIN_ID){const u=globalData.users[p.id];if(u){u.omokScore=(u.omokScore||0)+1;await saveSpecificData('users/'+p.id+'/omokScore',u.omokScore);}} } }
+            if(winner!=='draw'&&room.players){ for(const p of Object.values(room.players)){ if(!p.isAi&&p.team===winner&&p.id!==ADMIN_ID){const u=globalData.users[p.id];if(u){u.chessScore=(u.chessScore||0)+1;await saveSpecificData('users/'+p.id+'/chessScore',u.chessScore);}} } }
         }
         await saveSpecificData(ROOM_PATH+'/'+currentRoomId,room); fetchSystemData();
     }
