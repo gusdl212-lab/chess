@@ -91,6 +91,23 @@
             background: rgba(11, 12, 16, 0.85); display: flex; flex-direction: column;
             justify-content: center; align-items: center; z-index: 10; border-radius: 10px;
         }
+
+        /* 추가된 모션 및 효과 CSS */
+        @keyframes slideInMove { to { transform: translate(0, 0); } }
+        @keyframes shakeAndGlow {
+            0% { transform: translate(1px, 1px) rotate(0deg); box-shadow: inset 0 0 10px red; }
+            10% { transform: translate(-1px, -2px) rotate(-1deg); }
+            20% { transform: translate(-3px, 0px) rotate(1deg); }
+            30% { transform: translate(3px, 2px) rotate(0deg); box-shadow: inset 0 0 20px red; }
+            40% { transform: translate(1px, -1px) rotate(1deg); }
+            50% { transform: translate(-1px, 2px) rotate(-1deg); }
+            60% { transform: translate(-3px, 1px) rotate(0deg); box-shadow: inset 0 0 30px red; }
+            70% { transform: translate(3px, 1px) rotate(-1deg); }
+            80% { transform: translate(-1px, -1px) rotate(1deg); }
+            90% { transform: translate(1px, 2px) rotate(0deg); box-shadow: inset 0 0 40px red; }
+            100% { transform: translate(1px, -2px) rotate(-1deg); box-shadow: inset 0 0 50px rgba(255,0,0,0.8); background-color: rgba(255,0,0,0.5); }
+        }
+        .checkmate-king { animation: shakeAndGlow 1s ease-in-out forwards; border-radius: 50%; }
     </style>
 </head>
 <body style="visibility: visible;">
@@ -98,7 +115,7 @@
     <h1>♟️♙ 멀티 체스 대전 플랫폼</h1>
     <div class="status-bar">
         <span>🌐 체스 통합 버전 · 합법적인 수만 표시</span>
-        <span style="color: #66fcf1; font-weight: bold;">Chess v1.8</span>
+        <span style="color: #66fcf1; font-weight: bold;">Chess v1.9</span>
     </div>
     <!-- [뷰 1] 로그인 / 회원가입 화면 -->
     <div id="view-auth" class="card auth-box">
@@ -237,6 +254,8 @@
                 <button id="btn-explode-game" class="btn-explode admin-only hidden" style="width:auto; padding:3px 8px; font-size:11px;" onclick="explodeRoom()">💣 방 폭파</button>
             </div>
             <div style="display:flex; gap:5px; align-items:center;">
+                <!-- 추가된 기권 버튼 -->
+                <button id="btn-surrender" class="btn-danger hidden" style="width:auto; background:#dd6b20;" onclick="surrenderGame()">기권 🏳️</button>
                 <button id="btn-pause-game" class="btn-main" style="width:auto; padding:5px 10px; font-size:11px;" onclick="togglePause()">⏸️ 일시정지 (ESC)</button>
                 <button class="btn-danger" style="width:auto;" onclick="leaveRoom()">게임 포기 / 나가기 🚪</button>
             </div>
@@ -250,6 +269,12 @@
                         <h2 style="color: #ffd700; margin-bottom: 10px;">⏸️ 게임 일시정지</h2>
                         <p id="pause-by-text" style="font-size: 14px; color: #e0e6ed; margin-bottom: 20px; text-align: center;"></p>
                         <button class="btn-main" style="width: 160px; padding: 10px;" onclick="resumeGame()">게임 재개하기 ▶️</button>
+                    </div>
+                    <!-- 승패 및 체크메이트 확정 표시 오버레이 -->
+                    <div id="game-end-overlay" class="hidden" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(11, 12, 16, 0.9); display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 20; border-radius: 6px;">
+                        <div id="game-end-title" style="font-size: 36px; font-weight: bold; margin-bottom: 10px; text-shadow: 0 0 10px rgba(0,0,0,0.5);"></div>
+                        <div id="game-end-desc" style="font-size: 14px; color: #e0e6ed; margin-bottom: 25px;"></div>
+                        <button class="btn-main" style="width: 160px; padding: 10px;" onclick="returnToRoom()">방으로 돌아가기 🏠</button>
                     </div>
                 </div>
                 <div style="text-align: center; margin-top: 15px;">
@@ -454,7 +479,6 @@
             switchView('view-lobby');
             return;
         }
-        // 활동 신호가 잠깐 끊겼다고 즉시 승패를 결정하지 않도록 충분한 유예시간을 둡니다.
         if (room.status === 'playing' || room.status === 'paused') {
             const playersList = Object.values(room.players);
             const blackTeamExists = playersList.some(p => p.team === 'black');
@@ -756,8 +780,6 @@
         const isAdmin = (currentUser.id === ADMIN_ID);
         const now = Date.now();
 
-        // 관리자에게는 기존 체스 단수 랭킹을 그대로 표시하고,
-        // 일반 사용자에게는 게임 목록을 표시합니다.
         if (isAdmin) {
             if (leftPanelTitle) leftPanelTitle.innerHTML = '🏆 체스 단수 랭킹';
             rankEl.innerHTML = '';
@@ -1067,13 +1089,10 @@
     function findKing(board,color){ for(let i=0;i<64;i++) if(board[i]===color+'k') return i; return -1; }
     function isSquareAttacked(board, target, byColor){
         const [tr,tc]=rc(target);
-        // Pawns
         const pawnRow = tr + (byColor==='w' ? 1 : -1);
         for(const dc of [-1,1]) if(inside8(pawnRow,tc+dc) && board[idx(pawnRow,tc+dc)]===byColor+'p') return true;
-        // Knights
         for(const [dr,dc] of [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]])
             if(inside8(tr+dr,tc+dc) && board[idx(tr+dr,tc+dc)]===byColor+'n') return true;
-        // Kings
         for(let dr=-1;dr<=1;dr++) for(let dc=-1;dc<=1;dc++) if(dr||dc)
             if(inside8(tr+dr,tc+dc) && board[idx(tr+dr,tc+dc)]===byColor+'k') return true;
         const rays=[[[1,0],[-1,0],[0,1],[0,-1]],[[1,1],[1,-1],[-1,1],[-1,-1]]];
@@ -1161,7 +1180,7 @@
         await fetchSystemData(); const room=globalData.rooms[currentRoomId]; if(!room) return;
         const players=Object.values(room.players||{}), blackP=players.filter(p=>p.team==='black'), whiteP=players.filter(p=>p.team==='white');
         if(!blackP.length || !whiteP.length) return alert('흑(백) 팀에 각각 최소 한 명(또는 AI)씩 참가해야 시작할 수 있습니다!');
-        room.status='playing'; room.board=[...CHESS_START]; room.boardSize=8; room.turnTeam='black'; room.turnStartedAt=Date.now(); room.winner=null; room.pausedBy=''; room.scoreProcessed=false; room.lastMove=null; room.aiThinking=false;
+        room.status='playing'; room.board=[...CHESS_START]; room.boardSize=8; room.turnTeam='black'; room.turnStartedAt=Date.now(); room.winner=null; room.pausedBy=''; room.scoreProcessed=false; room.lastMove=null; room.lastMoveFrom=null; room.aiThinking=false;
         room.chessState={castling:{wK:true,wQ:true,bK:true,bQ:true},enPassant:null,halfmove:0,fullmove:1,selected:null};
         hasPlayedConfetti=false; await saveSpecificData(ROOM_PATH+'/'+currentRoomId,room); renderRoomOrGameView();
     }
@@ -1185,7 +1204,7 @@
     async function makeChessMove(room,move,promotion='q'){
         const movingTeam=room.turnTeam; const color=movingTeam==='black'?'b':'w', state=room.chessState||{castling:{wK:true,wQ:true,bK:true,bQ:true},enPassant:null,halfmove:0,fullmove:1};
         const piece=room.board[move.from], capture=!!room.board[move.to]||!!move.enPassant;
-        const res=applyChessMove(room.board,state,move,promotion); room.board=res.board; room.chessState=res.state; room.lastMove=move.to; room.turnTeam=movingTeam==='black'?'white':'black';
+        const res=applyChessMove(room.board,state,move,promotion); room.board=res.board; room.chessState=res.state; room.lastMove=move.to; room.lastMoveFrom=move.from; room.turnTeam=movingTeam==='black'?'white':'black';
         if(chessType(piece)==='p'||capture) room.chessState.halfmove=0; else room.chessState.halfmove=(state.halfmove||0)+1;
         if(color==='b') room.chessState.fullmove=(state.fullmove||1)+1;
         const nextColor=color==='b'?'w':'b', nextMoves=legalMoves(room.board,room.chessState,nextColor);
@@ -1222,12 +1241,108 @@
             scored.sort((a,b)=>b.s-a.s); await makeChessMove(fresh,scored[0].m,'q');
         }catch(e){console.error(e);await saveSpecificData(ROOM_PATH+'/'+currentRoomId+'/aiThinking',false);}},900);
     }
+    async function surrenderGame() {
+        if(!currentRoomId||!currentUser) return;
+        if(!confirm("정말로 기권하시겠습니까? 즉시 패배 처리됩니다.")) return;
+        await fetchSystemData();
+        const room = globalData.rooms[currentRoomId];
+        if(!room || room.status !== 'playing') return;
+        const my = room.players[currentUser.id];
+        if(!my || my.team === 'spectator') return;
+        room.status = 'ended';
+        room.winner = my.team === 'black' ? 'white' : 'black';
+        if (!room.scoreProcessed) {
+            room.scoreProcessed=true;
+            for (const p of Object.values(room.players)) {
+                if (!p.isAi && p.team === room.winner && p.id !== ADMIN_ID) {
+                    const u = globalData.users[p.id];
+                    if (u) {
+                        u.chessScore = (u.chessScore || 0) + 1;
+                        await saveSpecificData('users/' + p.id + '/chessScore', u.chessScore);
+                    }
+                }
+            }
+        }
+        await saveSpecificData(ROOM_PATH + '/' + currentRoomId, room);
+        fetchSystemData();
+    }
+    function playConfetti() {
+        const colors = ['#66fcf1', '#f6ad55', '#e53e3e', '#3182ce', '#ffd700'];
+        for(let i=0; i<40; i++) {
+            const conf = document.createElement('div');
+            conf.style.position = 'absolute';
+            conf.style.width = '8px';
+            conf.style.height = '8px';
+            conf.style.backgroundColor = colors[Math.floor(Math.random() * colors.length)];
+            conf.style.left = '50%';
+            conf.style.top = '50%';
+            conf.style.zIndex = '9999';
+            conf.style.pointerEvents = 'none';
+            conf.style.borderRadius = Math.random() > 0.5 ? '50%' : '2px';
+            const angle = Math.random() * Math.PI * 2;
+            const velocity = 50 + Math.random() * 150;
+            const tx = Math.cos(angle) * velocity;
+            const ty = Math.sin(angle) * velocity - 100 - Math.random()*100;
+            conf.style.transition = 'all 1.5s cubic-bezier(0.1, 0.8, 0.3, 1)';
+            document.body.appendChild(conf);
+            
+            setTimeout(() => {
+                conf.style.transform = `translate(${tx}px, ${ty}px) scale(0)`;
+                conf.style.opacity = '0';
+            }, 50);
+            setTimeout(() => conf.remove(), 1550);
+        }
+    }
     function renderGameBoard(room){
         if(!currentUser)return; const board=cloneChessBoard(room.board), state=room.chessState||{castling:{wK:true,wQ:true,bK:true,bQ:true},enPassant:null};
         const badge=document.getElementById('game-turn-badge'), overlay=document.getElementById('pause-overlay'), pauseText=document.getElementById('pause-by-text');
         if(room.status==='paused'){if(turnTimer){clearInterval(turnTimer);turnTimer=null;}overlay.classList.remove('hidden');pauseText.innerHTML=`<strong>${room.pausedBy||'누군가'}</strong>님이 게임을 일시정지했습니다.<br><span style="font-size:12px;color:#ffd700;">(정지한 사람 또는 관리자만 해제할 수 있습니다)</span>`;}else overlay.classList.add('hidden');
         const pauseBtn=document.getElementById('btn-pause-game'); if(room.status==='ended')pauseBtn.classList.add('hidden'); else {pauseBtn.classList.remove('hidden');pauseBtn.innerText=room.status==='paused'?(room.pausedBy===((currentUser.id===ADMIN_ID)?'관리자':currentUser.id)?'▶️ 게임 재개 (ESC)':'⏸️ 일시정지됨'):'⏸️ 일시정지 (ESC)';pauseBtn.disabled=room.status==='paused'&&room.pausedBy!==((currentUser.id===ADMIN_ID)?'관리자':currentUser.id);pauseBtn.style.opacity=pauseBtn.disabled?'0.5':'1';}
         const my=room.players[currentUser.id], myTeam=my?my.team:null, isSpectator=myTeam==='spectator', color=myTeam==='black'?'b':'w', active=Object.values(room.players||{}).find(p=>p.team===room.turnTeam), aiTurn=active&&active.isAi, myTurn=room.status==='playing'&&room.turnTeam===myTeam&&!aiTurn&&!isSpectator;
+        
+        const surrenderBtn = document.getElementById('btn-surrender');
+        if(surrenderBtn) {
+            if (room.status === 'ended' || isSpectator) surrenderBtn.classList.add('hidden');
+            else surrenderBtn.classList.remove('hidden');
+        }
+
+        const endOverlay = document.getElementById('game-end-overlay');
+        const endTitle = document.getElementById('game-end-title');
+        const endDesc = document.getElementById('game-end-desc');
+        if (room.status === 'ended') {
+            endOverlay.classList.remove('hidden');
+            let resultText = '';
+            let titleColor = '#66fcf1';
+            if (room.winner === 'draw') {
+                resultText = '무승부!';
+                titleColor = '#f6ad55';
+                endDesc.innerText = '치열한 접전 끝에 무승부로 끝났습니다.';
+            } else {
+                const winnerName = room.winner === 'black' ? '흑(⚫)' : '백(⚪)';
+                const isMyWin = room.winner === myTeam;
+                if (isSpectator) {
+                    resultText = `${winnerName} 승리!`;
+                    endDesc.innerText = '게임이 종료되었습니다.';
+                } else if (isMyWin) {
+                    resultText = '🎉 승리! 🎉';
+                    titleColor = '#66fcf1';
+                    endDesc.innerText = '상대를 멋지게 제압했습니다!';
+                    if (!hasPlayedConfetti) {
+                        playConfetti();
+                        hasPlayedConfetti = true;
+                    }
+                } else {
+                    resultText = '패배...';
+                    titleColor = '#e53e3e';
+                    endDesc.innerText = '아쉽게 패배했습니다. 다음 기회를 노려보세요!';
+                }
+            }
+            endTitle.innerText = resultText;
+            endTitle.style.color = titleColor;
+        } else {
+            endOverlay.classList.add('hidden');
+        }
+
         if(room.status==='playing'){
             const turnKey = `${currentRoomId}:${room.turnTeam}:${room.turnStartedAt||0}`;
             if(!room.turnStartedAt) timeLeft=30; else timeLeft=Math.max(0,30-Math.floor((Date.now()-room.turnStartedAt)/1000));
@@ -1262,9 +1377,6 @@
         const boardEl=document.getElementById('omok-board');
         boardEl.className='chess-board';
         boardEl.innerHTML='';
-
-        // 선택한 칸은 서버(room.chessState)에 저장하지 않고 이 화면의 dataset에만 보관합니다.
-        // 따라서 주기적인 Firebase 동기화/재렌더링이 되어도 이동 점이 유지됩니다.
         let selected = null;
         if(myTurn){
             const rawSelected = boardEl.dataset.selectedSquare;
@@ -1290,10 +1402,26 @@
             cell.dataset.square=chessNotation(i);
             if((i%8===0))cell.innerHTML+=`<span class="rank-label">${8-r}</span>`;
             if(r===7)cell.innerHTML+=`<span class="file-label">${'abcdefgh'[c]}</span>`;
+            
+            if (room.status === 'ended' && room.winner !== 'draw') {
+                const loserColor = room.winner === 'black' ? 'w' : 'b';
+                if (board[i] === loserColor + 'k') {
+                    cell.classList.add('checkmate-king');
+                }
+            }
+
             if(board[i]){
                 const piece=document.createElement('span');
                 piece.className=`chess-piece ${chessColor(board[i])==='w'?'white-piece':'black-piece'}`;
                 piece.textContent=PIECE_UNICODE[board[i]];
+
+                if (room.lastMove === i && room.lastMoveFrom !== undefined && room.lastMoveFrom !== null) {
+                    const [fr, fc] = rc(room.lastMoveFrom);
+                    const [tr, tc] = rc(i);
+                    piece.style.transform = `translate(${(fc - tc) * 100}%, ${(fr - tr) * 100}%)`;
+                    piece.style.animation = 'slideInMove 0.3s ease-out forwards';
+                }
+
                 cell.appendChild(piece);
             }
             if(legalSet.has(i)){
@@ -1303,19 +1431,16 @@
             }
             if(myTurn){
                 cell.onclick=()=>{
-                    // 현재 선택된 말의 합법적인 목적지를 클릭하면 이동합니다.
                     if(selected!==null && legalSet.has(i)){
                         delete boardEl.dataset.selectedSquare;
                         placeChess(selected,i);
                         return;
                     }
-                    // 자기 말을 클릭하면 선택하고 이동 가능 위치를 표시합니다.
                     if(chessColor(board[i])===color){
                         boardEl.dataset.selectedSquare=String(i);
                         renderGameBoard(room);
                         return;
                     }
-                    // 빈 칸이나 상대 말을 잘못 클릭하면 선택을 해제합니다.
                     delete boardEl.dataset.selectedSquare;
                     renderGameBoard(room);
                 };
@@ -1395,13 +1520,13 @@
             switchView('view-lobby');
             return;
         }
-        // 게임 종료 후에도 현재 방과 참가 상태를 유지하고 대기실로 돌아갑니다.
         room.status = 'waiting';
         room.winner = null;
         room.pausedBy = '';
         room.aiThinking = false;
         room.board = [];
         room.lastMove = null;
+        room.lastMoveFrom = null;
         room.chessState = null;
         await saveSpecificData(ROOM_PATH + '/' + currentRoomId, room);
         renderRoomOrGameView();
