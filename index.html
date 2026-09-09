@@ -93,7 +93,6 @@
         }
 
         /* 추가된 모션 및 효과 CSS */
-        @keyframes slideInMove { to { transform: translate(0, 0); } }
         @keyframes shakeAndGlow {
             0% { transform: translate(1px, 1px) rotate(0deg); box-shadow: inset 0 0 10px red; }
             10% { transform: translate(-1px, -2px) rotate(-1deg); }
@@ -115,7 +114,7 @@
     <h1>♟️♙ 멀티 체스 대전 플랫폼</h1>
     <div class="status-bar">
         <span>🌐 체스 통합 버전 · 합법적인 수만 표시</span>
-        <span style="color: #66fcf1; font-weight: bold;">Chess v1.9</span>
+        <span style="color: #66fcf1; font-weight: bold;">Chess v2.0</span>
     </div>
     <!-- [뷰 1] 로그인 / 회원가입 화면 -->
     <div id="view-auth" class="card auth-box">
@@ -1204,7 +1203,7 @@
     async function makeChessMove(room,move,promotion='q'){
         const movingTeam=room.turnTeam; const color=movingTeam==='black'?'b':'w', state=room.chessState||{castling:{wK:true,wQ:true,bK:true,bQ:true},enPassant:null,halfmove:0,fullmove:1};
         const piece=room.board[move.from], capture=!!room.board[move.to]||!!move.enPassant;
-        const res=applyChessMove(room.board,state,move,promotion); room.board=res.board; room.chessState=res.state; room.lastMove=move.to; room.lastMoveFrom=move.from; room.turnTeam=movingTeam==='black'?'white':'black';
+        const res=applyChessMove(room.board,state,move,promotion); room.board=res.board; room.chessState=res.state; room.lastMove=move.to; room.lastMoveFrom=null; room.turnTeam=movingTeam==='black'?'white':'black';
         if(chessType(piece)==='p'||capture) room.chessState.halfmove=0; else room.chessState.halfmove=(state.halfmove||0)+1;
         if(color==='b') room.chessState.fullmove=(state.fullmove||1)+1;
         const nextColor=color==='b'?'w':'b', nextMoves=legalMoves(room.board,room.chessState,nextColor);
@@ -1415,13 +1414,6 @@
                 piece.className=`chess-piece ${chessColor(board[i])==='w'?'white-piece':'black-piece'}`;
                 piece.textContent=PIECE_UNICODE[board[i]];
 
-                if (room.lastMove === i && room.lastMoveFrom !== undefined && room.lastMoveFrom !== null) {
-                    const [fr, fc] = rc(room.lastMoveFrom);
-                    const [tr, tc] = rc(i);
-                    piece.style.transform = `translate(${(fc - tc) * 100}%, ${(fr - tr) * 100}%)`;
-                    piece.style.animation = 'slideInMove 0.3s ease-out forwards';
-                }
-
                 cell.appendChild(piece);
             }
             if(legalSet.has(i)){
@@ -1488,7 +1480,7 @@
         const room = globalData.rooms[currentRoomId];
         if (!room) return;
         if (!room.chat) room.chat = [];
-        room.chat.push({ sender: currentUser.id, text: text, time: Date.now() });
+        room.chat.push({ sender: currentUser.id, text: text, time: Date.now() -> 0 ? Date.now() : Date.now() });
         if (room.chat.length > 50) room.chat = room.chat.slice(-50);
         await saveSpecificData(`${ROOM_PATH}/${currentRoomId}/chat`, room.chat);
         fetchSystemData();
