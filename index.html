@@ -116,7 +116,7 @@
     <h1>♟️♙ 멀티 체스 대전 플랫폼</h1>
     <div class="status-bar">
         <span>🌐 체스 통합 버전 · 합법적인 수만 표시</span>
-        <span style="color: #66fcf1; font-weight: bold;">Chess v3.4</span>
+        <span style="color: #66fcf1; font-weight: bold;">Chess v3.5</span>
     </div>
     <!-- [뷰 1] 로그인 / 회원가입 화면 -->
     <div id="view-auth" class="card auth-box">
@@ -1247,7 +1247,7 @@
     }
     function findKingSquare(board,color){return board.findIndex(p=>p===color+'k');}
     function gameEndReason(board,nextColor,nextMoves,inCheck,state){
-        if(!nextMoves.length) return inCheck?'checkmate':'stalemate';
+        if(!nextMoves.length) return inCheck?'checkmate':'nomoves';
         if((state.halfmove||0)>=100) return 'draw50';
         const pieces=board.filter(Boolean);
         if(pieces.every(p=>['k','b','n'].includes(chessType(p)))&&pieces.length<=4) return 'insufficient';
@@ -1277,7 +1277,7 @@
         const inCheck=isInCheck(room.board,nextColor);
         const reason=gameEndReason(room.board,nextColor,nextMoves,inCheck,room.chessState);
         let winner=null;
-        if(reason==='checkmate') winner=movingTeam;
+        if(reason==='checkmate'||reason==='nomoves') winner=movingTeam;
         else if(reason) winner='draw';
         room.winner=winner;room.endReason=reason;room.status=winner?'ended':'playing';
         room.turnStartedAt=winner?null:Date.now();room.chessState.selected=null;room.aiThinking=false;
@@ -1347,10 +1347,13 @@
         const reason=room.endReason||'gameover';
         const isDraw=room.winner==='draw';
         const isMate=reason==='checkmate';
+        const isNoMoveLoss=reason==='nomoves';
         const el=document.createElement('div');el.className='game-result-overlay';
         const card=document.createElement('div');card.className='game-result-card '+(isMate?'mate':isDraw?'draw':'');
-        let title=isMate?'♚ 체크메이트!':isDraw?'🤝 무승부':'🏆 게임 종료';
-        let detail=isMate?`${room.winner==='black'?'흑':'백'} 승리`:(reason==='stalemate'?'더 이상 둘 수 있는 수가 없어 무승부입니다.':reason==='draw50'?'50수 규칙으로 무승부입니다.':reason==='insufficient'?'체크메이트가 불가능한 기물 구성으로 무승부입니다.':'게임이 종료되었습니다.');
+        let title=isMate?'♚ 체크메이트!':isNoMoveLoss?'🏆 승리!':isDraw?'🤝 무승부':'🏆 게임 종료';
+        let detail=isMate?`${room.winner==='black'?'흑':'백'} 승리`:
+            isNoMoveLoss?`${room.winner==='black'?'흑':'백'} 승리 — ${room.winner==='black'?'백':'흑'}은 둘 수 있는 수가 없어 패배했습니다.`:
+            (reason==='draw50'?'50수 규칙으로 무승부입니다.':reason==='insufficient'?'체크메이트가 불가능한 기물 구성으로 무승부입니다.':'게임이 종료되었습니다.');
         card.innerHTML=`<h2>${title}</h2><p>${detail}</p><p style="font-size:12px;color:#9fb3c8">승패가 최종 처리되었습니다.</p>`;el.appendChild(card);wrapper.appendChild(el);
     }
     function renderGameBoard(room){
