@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>♟️ 멀티 체스 대전 플랫폼</title>
+    <title>♟️ 멀티 체스 대전 플랫폼 · 로그인 수정본</title>
     <style>
         * {
             box-sizing: border-box;
@@ -785,7 +785,7 @@
 
     <div class="status-bar">
         <span>🌐 체스 통합 버전 · 합법적인 수만 표시</span>
-        <span style="color:#66fcf1;font-weight:bold;">Chess v1.9</span>
+        <span style="color:#66fcf1;font-weight:bold;">Chess v1.9 · 로그인 안정화</span>
     </div>
 
     <!-- [뷰 1] 로그인 / 회원가입 -->
@@ -1697,58 +1697,65 @@
 
     async function fetchSystemData() {
 
+        let serverReadOk = false;
+
         try {
 
             const res =
                 await fetch(
-                    `${FIREBASE_BASE_URL}.json`
+                    `${FIREBASE_BASE_URL}.json`,
+                    {
+                        cache: 'no-store'
+                    }
                 );
 
-            if (res.ok) {
+            if (!res.ok) {
+                throw new Error(
+                    `Firebase 읽기 실패: HTTP ${res.status}`
+                );
+            }
 
-                const data =
-                    await res.json();
+            const data =
+                await res.json();
 
-                if (data) {
+            serverReadOk = true;
 
-                    if (!globalData.users)
-                        globalData.users = {};
+            if (!globalData.users)
+                globalData.users = {};
 
-                    if (!globalData.rooms)
-                        globalData.rooms = {};
+            if (!globalData.rooms)
+                globalData.rooms = {};
 
-                    if (!globalData.lobbyChat)
-                        globalData.lobbyChat = [];
+            if (!globalData.lobbyChat)
+                globalData.lobbyChat = [];
 
-                    if (data.users) {
+            if (data && data.users) {
 
-                        if (data.users['undefined']) {
+                if (data.users['undefined']) {
 
-                            delete data.users['undefined'];
+                    delete data.users['undefined'];
 
-                            await removeSpecificData(
-                                'users/undefined'
-                            );
-                        }
-
-                        globalData.users =
-                            Object.assign(
-                                {},
-                                globalData.users,
-                                data.users
-                            );
-                    }
-
-                    if (data.chessRooms) {
-                        globalData.rooms =
-                            data.chessRooms;
-                    }
-
-                    if (data.lobbyChat) {
-                        globalData.lobbyChat =
-                            data.lobbyChat;
-                    }
+                    await removeSpecificData(
+                        'users/undefined'
+                    );
                 }
+
+                globalData.users =
+                    Object.assign(
+                        {},
+                        globalData.users,
+                        data.users
+                    );
+            }
+
+            if (data && data.chessRooms) {
+                globalData.rooms =
+                    data.chessRooms;
+            }
+
+            if (data && data.lobbyChat) {
+                globalData.lobbyChat =
+                    data.lobbyChat;
             }
 
         } catch (e) {
@@ -1768,9 +1775,18 @@
         if (!globalData.lobbyChat)
             globalData.lobbyChat = [];
 
+        /*
+         * 중요:
+         * Firebase 전체 읽기가 실패했을 때 관리자 계정을 다시 저장하지 않습니다.
+         * 기존 코드에서는 읽기 실패 후에도 관리자 데이터를 PUT하여
+         * 로그인 문제를 더 헷갈리게 만들 수 있었습니다.
+         */
         if (
-            !globalData.users[ADMIN_ID] ||
-            globalData.users[ADMIN_ID].chessScore !== 999
+            serverReadOk &&
+            (
+                !globalData.users[ADMIN_ID] ||
+                globalData.users[ADMIN_ID].chessScore !== 999
+            )
         ) {
 
             globalData.users[ADMIN_ID] = {
@@ -1781,13 +1797,13 @@
             };
 
             await saveSpecificData(
-                'users/' + ADMIN_ID,
+                'users/' + encodeFirebasePath(ADMIN_ID),
                 globalData.users[ADMIN_ID]
             );
         }
 
         if (!currentUser)
-            return;
+            return serverReadOk;
 
         if (
             globalData.users[currentUser.id]
@@ -1895,6 +1911,8 @@
 
             checkAndTriggerAiTurn();
         }
+
+        return serverReadOk;
     }
 
     async function checkAndHandlePlayerDisconnect() {
@@ -2024,13 +2042,20 @@
         }
     }
 
+    function encodeFirebasePath(path) {
+        return String(path)
+            .split('/')
+            .map(part => encodeURIComponent(part))
+            .join('/');
+    }
+
     async function saveSpecificData(path, data) {
 
         try {
 
             const res =
                 await fetch(
-                    `${FIREBASE_BASE_URL}/${path}.json`,
+                    `${FIREBASE_BASE_URL}/${encodeFirebasePath(path)}.json`,
                     {
                         method: 'PUT',
                         headers: {
@@ -2059,7 +2084,7 @@
         try {
 
             await fetch(
-                `${FIREBASE_BASE_URL}/${path}.json`,
+                `${FIREBASE_BASE_URL}/${encodeFirebasePath(path)}.json`,
                 {
                     method: 'DELETE'
                 }
@@ -2201,7 +2226,13 @@
             );
         }
 
-        await fetchSystemData();
+        const serverOk = await fetchSystemData();
+
+        if (serverOk === false) {
+            return alert(
+                "서버에 연결하지 못했습니다. 잠시 후 다시 시도해주세요."
+            );
+        }
 
         if (globalData.users[id]) {
             return alert(
@@ -2255,8 +2286,6 @@
 
     async function handleLogin() {
 
-        await fetchSystemData();
-
         const id =
             document.getElementById(
                 'login-id'
@@ -2280,6 +2309,18 @@
         if (!id || !pw) {
             return alert(
                 "아이디와 비밀번호를 입력해주세요."
+            );
+        }
+
+        /*
+         * 로그인할 때 서버 데이터를 먼저 새로 읽습니다.
+         * 읽기 실패를 '비밀번호 오류'로 처리하지 않도록 구분합니다.
+         */
+        const serverOk = await fetchSystemData();
+
+        if (serverOk === false) {
+            return alert(
+                "서버에 연결하지 못했습니다. 잠시 후 다시 로그인해주세요."
             );
         }
 
@@ -2377,7 +2418,13 @@
 
     async function handlePasswordReset() {
 
-        await fetchSystemData();
+        const serverOk = await fetchSystemData();
+
+        if (serverOk === false) {
+            return alert(
+                "서버에 연결하지 못했습니다. 잠시 후 다시 시도해주세요."
+            );
+        }
 
         const id =
             document.getElementById(
