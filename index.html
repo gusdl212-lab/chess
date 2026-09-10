@@ -345,6 +345,35 @@
             will-change: transform, opacity, filter;
         }
 
+        /* 실제 칸 사이를 이동하는 말 애니메이션 */
+        .chess-moving-piece {
+            position: absolute;
+            z-index: 30;
+            pointer-events: none;
+            line-height: 1;
+            font-family: "Times New Roman", serif;
+            transform: translate(-50%, -50%);
+            will-change: left, top, transform;
+            transition: left 0.48s cubic-bezier(.16,1,.3,1),
+                        top 0.48s cubic-bezier(.16,1,.3,1),
+                        opacity 0.18s ease;
+            text-shadow: 1px 2px 3px rgba(0,0,0,.45);
+        }
+
+        .chess-moving-piece.white-piece {
+            color: #fff;
+            text-shadow:
+                0 1px 0 #222,
+                1px 2px 3px rgba(0,0,0,.65);
+        }
+
+        .chess-moving-piece.black-piece {
+            color: #171717;
+            text-shadow:
+                0 1px 0 #555,
+                1px 2px 3px rgba(0,0,0,.55);
+        }
+
         .white-piece {
             color: #fff;
             text-shadow:
@@ -786,7 +815,7 @@
 
     <div class="status-bar">
         <span>🌐 체스 통합 버전 · 합법적인 수만 표시</span>
-        <span style="color:#66fcf1;font-weight:bold;">Chess v2.1 · 로그인 안정화</span>
+        <span style="color:#66fcf1;font-weight:bold;">Chess v2.2 · 체스 이동 수정</span>
     </div>
 
     <!-- [뷰 1] 로그인 / 회원가입 -->
@@ -5768,14 +5797,50 @@
         room.aiThinking =
             false;
 
-        await saveSpecificData(
-            ROOM_PATH +
-            '/' +
-            currentRoomId,
-            room
-        );
+        /*
+         * v2.2 핵심 수정
+         * 저장 직후 화면이 다시 예전 판으로 덮어써지지 않도록
+         * 메모리의 방 정보도 즉시 최신 상태로 바꿉니다.
+         * 그 다음 저장 결과와 관계없이 현재 화면을 먼저 갱신합니다.
+         */
+        globalData.rooms[currentRoomId] = room;
 
-        fetchSystemData();
+        const saved =
+            await saveSpecificData(
+                ROOM_PATH +
+                '/' +
+                currentRoomId,
+                room
+            );
+
+        globalData.rooms[currentRoomId] = room;
+        renderRoomOrGameView();
+
+        if (!saved) {
+            console.error('체스 수 저장 실패: 서버 저장을 다시 시도합니다.');
+
+            setTimeout(async () => {
+                const latestLocal =
+                    globalData.rooms[currentRoomId];
+
+                if (
+                    latestLocal &&
+                    latestLocal.lastMoveId === room.lastMoveId
+                ) {
+                    await saveSpecificData(
+                        ROOM_PATH +
+                        '/' +
+                        currentRoomId,
+                        latestLocal
+                    );
+                }
+            }, 700);
+        }
+
+        /* 서버의 최신 상태도 잠시 뒤 한 번 확인 */
+        setTimeout(() => {
+            fetchSystemData();
+        }, 650);
     }
 
     function isInsufficientMaterial(
@@ -6193,6 +6258,109 @@
             },
             900
         );
+    }
+
+    function animateRenderedChessMove(boardEl, room) {
+
+        if (
+            !boardEl ||
+            !room ||
+            room.lastMoveFrom === null ||
+            room.lastMove === null
+        ) return;
+
+        const from = Number(room.lastMoveFrom);
+        const to = Number(room.lastMove);
+
+        if (
+            !Number.isInteger(from) ||
+            !Number.isInteger(to) ||
+            from < 0 || from >= 64 ||
+            to < 0 || to >= 64 ||
+            !room.board ||
+            !room.board[to]
+        ) return;
+
+        const sourceCell =
+            boardEl.children[from];
+        const targetCell =
+            boardEl.children[to];
+
+        if (!sourceCell || !targetCell) return;
+
+        /* 출발 칸에 아직 말이 남아 있으면 서버 상태가 뒤섞인 것이므로
+           잘못된 이동 효과를 보여주지 않습니다. */
+        if (sourceCell.querySelector('.chess-piece')) return;
+
+        const targetPiece =
+            targetCell.querySelector('.chess-piece');
+
+        if (!targetPiece) return;
+
+        const boardRect =
+            boardEl.getBoundingClientRect();
+        const sourceRect =
+            sourceCell.getBoundingClientRect();
+        const targetRect =
+            targetCell.getBoundingClientRect();
+
+        const moving =
+            document.createElement('span');
+
+        moving.className =
+            `chess-moving-piece ${
+                chessColor(room.board[to]) === 'w'
+                    ? 'white-piece'
+                    : 'black-piece'
+            }`;
+
+        moving.textContent =
+            PIECE_UNICODE[room.board[to]];
+
+        const fontSize =
+            parseFloat(
+                getComputedStyle(targetPiece).fontSize
+            ) || 48;
+
+        moving.style.fontSize = `${fontSize}px`;
+
+        const sx =
+            sourceRect.left - boardRect.left +
+            sourceRect.width / 2;
+        const sy =
+            sourceRect.top - boardRect.top +
+            sourceRect.height / 2;
+        const tx =
+            targetRect.left - boardRect.left +
+            targetRect.width / 2;
+        const ty =
+            targetRect.top - boardRect.top +
+            targetRect.height / 2;
+
+        moving.style.left = `${sx}px`;
+        moving.style.top = `${sy}px`;
+        moving.style.opacity = '1';
+
+        boardEl.appendChild(moving);
+
+        /* 최종 말은 잠시 숨기고, 실제 말이 칸을 건너가게 합니다. */
+        targetPiece.style.opacity = '0';
+
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                moving.style.left = `${tx}px`;
+                moving.style.top = `${ty}px`;
+            });
+        });
+
+        setTimeout(() => {
+            targetPiece.style.opacity = '';
+            moving.style.opacity = '0';
+        }, 455);
+
+        setTimeout(() => {
+            moving.remove();
+        }, 650);
     }
 
     function renderGameBoard(room) {
@@ -6710,7 +6878,7 @@
                                         await makeChessMove(
                                             fresh,
                                             randomMove,
-                                            randomMove.promotion ? 'q' : 'q'
+                                            'q'
                                         );
                                     }
                                 }
@@ -6941,7 +7109,11 @@
         const animateThisMove =
             moveKey &&
             moveKey !==
-                lastAnimatedMoveKey;
+                lastAnimatedMoveKey &&
+            room.lastMoveFrom !== null &&
+            room.lastMove !== null &&
+            !board[room.lastMoveFrom] &&
+            !!board[room.lastMove];
 
         if (animateThisMove) {
             lastAnimatedMoveKey =
@@ -7160,6 +7332,12 @@
             boardEl.appendChild(
                 cell
             );
+        }
+
+        if (animateThisMove) {
+            requestAnimationFrame(() => {
+                animateRenderedChessMove(boardEl, room);
+            });
         }
 
         renderGameChat(room);
