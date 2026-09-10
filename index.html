@@ -2,7 +2,7 @@
 <html lang="ko"><head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>♟️ 멀티 체스 대전 플랫폼 · v3.1</title>
+    <title>♟️ 멀티 체스 대전 플랫폼 · v3.2</title>
     <style>
         * { box-sizing: border-box; font-family: 'Pretendard', -apple-system, sans-serif; }
         body {
@@ -87,12 +87,12 @@
         .game-menu-divider { height:1px; background:#2d3748; margin:4px 0; }
         .game-section-label { color:#a0aec0; font-size:10px; font-weight:bold; padding:2px 4px; }
 
-        /* v3.1 체스 효과 */
+        /* v3.2 체스 효과 */
         .chess-piece{transition:transform .18s ease,opacity .18s ease,filter .18s ease}
         .chess-cell.checked-king{animation:kingCheckPulse .72s ease-in-out infinite;z-index:2}
         .chess-board.board-check{box-shadow:0 0 0 3px rgba(255,72,72,.65),0 0 26px rgba(255,45,45,.45)}
         .chess-board.board-checkmate{animation:boardMateFlash .85s ease-in-out 3;box-shadow:0 0 0 4px rgba(255,55,55,.9),0 0 38px rgba(255,30,30,.7)}
-        .move-ghost{position:fixed;z-index:9999;pointer-events:none;line-height:1;transform:translate(-50%,-50%);transition:left .38s cubic-bezier(.18,.8,.22,1),top .38s cubic-bezier(.18,.8,.22,1);text-shadow:1px 2px 3px rgba(0,0,0,.55);will-change:left,top}
+        .chess-piece.move-arrival{position:relative;z-index:12;will-change:transform;transition:transform .46s cubic-bezier(.18,.82,.22,1),filter .46s ease}.chess-board.animating{pointer-events:none}.chess-piece.move-arrival-capture{filter:brightness(1.16) drop-shadow(0 0 7px rgba(255,210,80,.65))}
         .capture-burst{position:absolute;inset:12%;border-radius:50%;border:3px solid rgba(255,210,80,.95);pointer-events:none;z-index:8;animation:captureBurst .42s ease-out forwards}
         .game-result-overlay{position:absolute;inset:0;background:rgba(5,8,12,.78);display:flex;align-items:center;justify-content:center;z-index:30;border-radius:10px;backdrop-filter:blur(2px)}
         .game-result-card{min-width:260px;max-width:88%;padding:24px 28px;border-radius:16px;background:#121821;border:2px solid #66fcf1;text-align:center;box-shadow:0 0 40px rgba(102,252,241,.35);animation:resultPop .42s cubic-bezier(.2,1.3,.35,1)}
@@ -116,7 +116,7 @@
     <h1>♟️♙ 멀티 체스 대전 플랫폼</h1>
     <div class="status-bar">
         <span>🌐 체스 통합 버전 · 합법적인 수만 표시</span>
-        <span style="color: #66fcf1; font-weight: bold;">Chess v3.1</span>
+        <span style="color: #66fcf1; font-weight: bold;">Chess v3.2</span>
     </div>
     <!-- [뷰 1] 로그인 / 회원가입 화면 -->
     <div id="view-auth" class="card auth-box">
@@ -302,6 +302,7 @@
     let timeLeft = 30;
     let timerTurnKey = null;
     let chessAnimating = false;
+    let lastAnimatedChessMoveKey = '';
     let whisperTarget = null; 
     window.addEventListener('keydown', async (e) => {
         if (e.key === 'Escape' && currentRoomId && currentUser) {
@@ -1037,6 +1038,7 @@
             el.classList.toggle('hidden', !isAdmin);
         });
         if (room.status === 'waiting') {
+            lastAnimatedChessMoveKey = '';
             if (turnTimer) { clearInterval(turnTimer); turnTimer = null; }
             switchView('view-room');
             document.getElementById('display-room-id').innerText = currentRoomId;
@@ -1180,7 +1182,7 @@
         await fetchSystemData(); const room=globalData.rooms[currentRoomId]; if(!room) return;
         const players=Object.values(room.players||{}), blackP=players.filter(p=>p.team==='black'), whiteP=players.filter(p=>p.team==='white');
         if(!blackP.length || !whiteP.length) return alert('흑(백) 팀에 각각 최소 한 명(또는 AI)씩 참가해야 시작할 수 있습니다!');
-        room.status='playing'; room.board=[...CHESS_START]; room.boardSize=8; room.turnTeam='black'; room.turnStartedAt=Date.now(); room.winner=null; room.pausedBy=''; room.scoreProcessed=false; room.lastMove=null; room.lastMoveFrom=null; room.lastMoveAt=0; room.endReason=null; room.aiThinking=false;
+        room.status='playing'; room.board=[...CHESS_START]; room.boardSize=8; room.turnTeam='black'; room.turnStartedAt=Date.now(); room.winner=null; room.pausedBy=''; room.scoreProcessed=false; room.lastMove=null; room.lastMoveFrom=null; room.lastMoveAt=0; room.lastMoveWasCapture=false; room.endReason=null; room.aiThinking=false;
         room.chessState={castling:{wK:true,wQ:true,bK:true,bQ:true},enPassant:null,halfmove:0,fullmove:1,selected:null};
         hasPlayedConfetti=false; await saveSpecificData(ROOM_PATH+'/'+currentRoomId,room); renderRoomOrGameView();
     }
@@ -1201,35 +1203,32 @@
         const v=(prompt('프로모션: 퀸(Q), 룩(R), 비숍(B), 나이트(N) 중 선택하세요.','Q')||'Q').trim().toLowerCase();
         return ['q','r','b','n'].includes(v)?v:'q';
     }
-    async function animateChessMove(move,piece,capture){
+    async function animateRenderedChessMove(move, capture){
         const boardEl=document.getElementById('omok-board');
-        if(!boardEl) return;
+        if(!boardEl || move.from==null || move.to==null) return;
         const from=boardEl.querySelector(`.chess-cell:nth-child(${move.from+1})`);
         const to=boardEl.querySelector(`.chess-cell:nth-child(${move.to+1})`);
-        if(!from||!to) return;
-        const moving=from.querySelector('.chess-piece');
+        if(!from || !to) return;
+        const moving=to.querySelector('.chess-piece');
         if(!moving) return;
 
-        chessAnimating=true;
         const fr=from.getBoundingClientRect();
         const tr=to.getBoundingClientRect();
+        const dx=(fr.left+fr.width/2)-(tr.left+tr.width/2);
+        const dy=(fr.top+fr.height/2)-(tr.top+tr.height/2);
 
-        // 실제 말 하나만 움직입니다. 복제본을 만들었다가 완성된 말을 다시 그리는
-        // 방식은 '두 번 움직이는 것처럼' 보이므로 사용하지 않습니다.
-        const originalParent=moving.parentElement;
-        const originalStyle={position:moving.style.position,left:moving.style.left,top:moving.style.top,transform:moving.style.transform,zIndex:moving.style.zIndex,opacity:moving.style.opacity,fontSize:moving.style.fontSize};
-        const captured=to.querySelector('.chess-piece');
-        if(captured) captured.style.opacity='0';
+        chessAnimating=true;
+        boardEl.classList.add('animating');
+        moving.classList.add('move-arrival');
+        if(capture) moving.classList.add('move-arrival-capture');
 
-        moving.remove();
-        moving.classList.add('move-ghost');
-        moving.style.position='fixed';
-        moving.style.left=(fr.left+fr.width/2)+'px';
-        moving.style.top=(fr.top+fr.height/2)+'px';
-        moving.style.fontSize=getComputedStyle(moving).fontSize;
-        moving.style.zIndex='9999';
-        moving.style.opacity='1';
-        document.body.appendChild(moving);
+        // 최종 보드는 이미 도착 칸에 한 번만 그려 둡니다.
+        // 말 자체를 출발 위치만큼 순간 이동시킨 뒤, 도착 위치로 한 번에 복귀시켜
+        // 서버 동기화 때문에 두 번 나타나는 현상을 없앱니다.
+        moving.style.transform=`translate(${dx}px,${dy}px) scale(.98)`;
+        await new Promise(requestAnimationFrame);
+        await new Promise(requestAnimationFrame);
+        moving.style.transform='translate(0,0) scale(1)';
 
         if(capture){
             const burst=document.createElement('span');
@@ -1238,23 +1237,10 @@
             setTimeout(()=>burst.remove(),500);
         }
 
-        await new Promise(requestAnimationFrame);
-        moving.style.left=(tr.left+tr.width/2)+'px';
-        moving.style.top=(tr.top+tr.height/2)+'px';
-
-        await new Promise(r=>setTimeout(r,390));
-
-        // 도착한 그 '같은 말'을 도착 칸에 그대로 넣고, 그 뒤에 서버 저장/재렌더링합니다.
-        moving.classList.remove('move-ghost');
-        moving.style.position=originalStyle.position;
-        moving.style.left=originalStyle.left;
-        moving.style.top=originalStyle.top;
-        moving.style.transform=originalStyle.transform;
-        moving.style.zIndex=originalStyle.zIndex;
-        moving.style.opacity=originalStyle.opacity || '1';
-        moving.style.fontSize='';
-        if(captured) captured.remove();
-        to.appendChild(moving);
+        await new Promise(r=>setTimeout(r,470));
+        moving.classList.remove('move-arrival','move-arrival-capture');
+        moving.style.transform='';
+        boardEl.classList.remove('animating');
         chessAnimating=false;
     }
     function findKingSquare(board,color){return board.findIndex(p=>p===color+'k');}
@@ -1277,10 +1263,9 @@
         if(!verified) return;
         move=verified;
         const capture=!!room.board[move.to]||!!move.enPassant;
-        await animateChessMove(move,piece,capture);
         const res=applyChessMove(room.board,state,move,promotion);
         room.board=res.board;room.chessState=res.state;
-        room.lastMove=move.to;room.lastMoveFrom=move.from;room.lastMoveAt=Date.now();
+        room.lastMove=move.to;room.lastMoveFrom=move.from;room.lastMoveAt=Date.now();room.lastMoveWasCapture=capture;
         room.turnTeam=movingTeam==='black'?'white':'black';
         if(chessType(piece)==='p'||capture) room.chessState.halfmove=0; else room.chessState.halfmove=(state.halfmove||0)+1;
         if(color==='b') room.chessState.fullmove=(state.fullmove||1)+1;
@@ -1341,6 +1326,7 @@
         const badge=document.getElementById('game-turn-badge'), overlay=document.getElementById('pause-overlay'), pauseText=document.getElementById('pause-by-text');
         if(room.status==='paused'){if(turnTimer){clearInterval(turnTimer);turnTimer=null;}overlay.classList.remove('hidden');pauseText.innerHTML=`<strong>${room.pausedBy||'누군가'}</strong>님이 게임을 일시정지했습니다.<br><span style="font-size:12px;color:#ffd700;">(정지한 사람 또는 관리자만 해제할 수 있습니다)</span>`;}else overlay.classList.add('hidden');
         const pauseBtn=document.getElementById('btn-pause-game'); if(room.status==='ended')pauseBtn.classList.add('hidden'); else {pauseBtn.classList.remove('hidden');pauseBtn.innerText=room.status==='paused'?(room.pausedBy===((currentUser.id===ADMIN_ID)?'관리자':currentUser.id)?'▶️ 게임 재개 (ESC)':'⏸️ 일시정지됨'):'⏸️ 일시정지 (ESC)';pauseBtn.disabled=room.status==='paused'&&room.pausedBy!==((currentUser.id===ADMIN_ID)?'관리자':currentUser.id);pauseBtn.style.opacity=pauseBtn.disabled?'0.5':'1';}
+        const backBtn=document.getElementById('btn-back-lobby'); if(backBtn) backBtn.classList.toggle('hidden', room.status!=='ended');
         const my=room.players[currentUser.id], myTeam=my?my.team:null, isSpectator=myTeam==='spectator', color=myTeam==='black'?'b':'w', active=Object.values(room.players||{}).find(p=>p.team===room.turnTeam), aiTurn=active&&active.isAi, myTurn=room.status==='playing'&&room.turnTeam===myTeam&&!aiTurn&&!isSpectator;
         if(room.status==='playing'){
             const turnKey = `${currentRoomId}:${room.turnTeam}:${room.turnStartedAt||0}`;
@@ -1440,6 +1426,11 @@
                 };
             }
             boardEl.appendChild(cell);
+        }
+        const moveKey = room.lastMoveAt ? `${currentRoomId}:${room.lastMoveFrom}:${room.lastMove}:${room.lastMoveAt}` : '';
+        if(moveKey && moveKey !== lastAnimatedChessMoveKey && Number.isInteger(room.lastMoveFrom) && Number.isInteger(room.lastMove)){
+            lastAnimatedChessMoveKey = moveKey;
+            animateRenderedChessMove({from:room.lastMoveFrom,to:room.lastMove}, !!room.lastMoveWasCapture);
         }
         showChessResult(room); renderGameChat(room); checkAndTriggerAiTurn();
     }
