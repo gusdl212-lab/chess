@@ -785,7 +785,7 @@
 
     <div class="status-bar">
         <span>🌐 체스 통합 버전 · 합법적인 수만 표시</span>
-        <span style="color:#66fcf1;font-weight:bold;">Chess v1.9 · 로그인 안정화</span>
+        <span style="color:#66fcf1;font-weight:bold;">Chess v2.0 · 로그인 안정화</span>
     </div>
 
     <!-- [뷰 1] 로그인 / 회원가입 -->
@@ -4254,13 +4254,20 @@
                 color
             );
 
-        return (
-            k < 0 ||
-            isSquareAttacked(
-                board,
-                k,
-                enemy(color)
-            )
+        /*
+         * 왕이 실제로 존재하지 않는 비정상 보드는
+         * 체크로 판정하지 않습니다.
+         * 왕이 사라졌다는 이유만으로 체크메이트가 뜨는
+         * 잘못된 종료를 막습니다.
+         */
+        if (k < 0) {
+            return false;
+        }
+
+        return isSquareAttacked(
+            board,
+            k,
+            enemy(color)
         );
     }
 
@@ -5292,6 +5299,13 @@
         room.lastMoveId =
             null;
 
+        /*
+         * 총 진행 수(반수)를 별도로 기록합니다.
+         * 시작 직후 잘못된 체크메이트 판정을 막는 데 사용합니다.
+         */
+        room.chessPly =
+            0;
+
         room.aiThinking =
             false;
 
@@ -5471,6 +5485,24 @@
         promotion = 'q'
     ) {
 
+        /*
+         * v2.0 수 처리 안전장치
+         * - 실제 게임 중인 방인지 확인
+         * - 움직이는 말이 현재 턴의 말인지 확인
+         * - 화면에서 만들어진 수라도 다시 합법 수인지 검증
+         * 이렇게 해서 오래된 화면/중복 클릭/동시 갱신 때문에
+         * 보드가 꼬이는 것을 막습니다.
+         */
+        if (
+            !room ||
+            room.status !== 'playing' ||
+            !move ||
+            move.from === undefined ||
+            move.to === undefined
+        ) {
+            return;
+        }
+
         const movingTeam =
             room.turnTeam;
 
@@ -5478,6 +5510,14 @@
             movingTeam === 'black'
                 ? 'b'
                 : 'w';
+
+        if (
+            room.chessPly === undefined ||
+            room.chessPly === null ||
+            !Number.isFinite(Number(room.chessPly))
+        ) {
+            room.chessPly = 0;
+        }
 
         const state =
             room.chessState ||
@@ -5492,6 +5532,39 @@
                 halfmove:0,
                 fullmove:1
             };
+
+        const currentPiece =
+            room.board &&
+            room.board[move.from];
+
+        if (
+            !currentPiece ||
+            chessColor(currentPiece) !== color
+        ) {
+            return;
+        }
+
+        const verifiedMoves =
+            legalMoves(
+                room.board,
+                state,
+                color,
+                move.from
+            );
+
+        const verifiedMove =
+            verifiedMoves.find(
+                m =>
+                    m.to === move.to &&
+                    !!m.enPassant === !!move.enPassant &&
+                    (m.castle || null) === (move.castle || null)
+            );
+
+        if (!verifiedMove) {
+            return;
+        }
+
+        move = verifiedMove;
 
         const piece =
             room.board[
@@ -5532,6 +5605,9 @@
 
         room.lastMoveId =
             `${move.from}-${move.to}-${room.lastMoveAt}`;
+
+        room.chessPly =
+            Number(room.chessPly || 0) + 1;
 
         room.turnTeam =
             movingTeam === 'black'
@@ -5585,9 +5661,43 @@
         /*
          * 체크메이트 / 스테일메이트
          */
+        /*
+         * 체크메이트 / 스테일메이트
+         *
+         * v2.0에서는 다음 조건을 모두 만족할 때만
+         * 체크메이트를 선언합니다.
+         * 1) 양쪽 왕이 정확히 하나씩 존재
+         * 2) 실제로 상대 왕이 체크 상태
+         * 3) 상대가 합법적으로 둘 수 있는 수가 없음
+         * 4) 최소 4반수 이상 진행됨
+         *
+         * 표준 체스 시작 위치에서 한 수만 둔 직후
+         * 체크메이트가 뜨는 비정상 종료를 확실히 차단합니다.
+         */
+        const blackKingCount =
+            room.board.filter(
+                p => p === 'bk'
+            ).length;
+
+        const whiteKingCount =
+            room.board.filter(
+                p => p === 'wk'
+            ).length;
+
+        const validKingPosition =
+            blackKingCount === 1 &&
+            whiteKingCount === 1;
+
+        const enoughPliesForMate =
+            Number(room.chessPly || 0) >= 4;
+
         if (!nextMoves.length) {
 
-            if (inCheck) {
+            if (
+                inCheck &&
+                validKingPosition &&
+                enoughPliesForMate
+            ) {
 
                 await finalizeGame(
                     room,
@@ -5598,13 +5708,27 @@
                 return;
             }
 
-            await finalizeGame(
-                room,
-                'draw',
-                'stalemate'
-            );
+            /*
+             * 왕이 없는 비정상 상태이거나
+             * 시작 직후의 잘못된 수 판정은
+             * 게임을 종료하지 않고 계속 진행시킵니다.
+             */
+            if (
+                !validKingPosition ||
+                !enoughPliesForMate
+            ) {
+                room.status = 'playing';
+                room.winner = null;
+                room.endReason = null;
+            } else {
+                await finalizeGame(
+                    room,
+                    'draw',
+                    'stalemate'
+                );
 
-            return;
+                return;
+            }
         }
 
         /*
@@ -6352,7 +6476,7 @@
         ) {
 
             boardWrapper.classList.add(
-                'check-state'
+                'checkmate-state'
             );
 
         } else if (
