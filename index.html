@@ -116,7 +116,7 @@
     <h1>♟️♙ 멀티 체스 대전 플랫폼</h1>
     <div class="status-bar">
         <span>🌐 체스 통합 버전 · 합법적인 수만 표시</span>
-        <span style="color: #66fcf1; font-weight: bold;">Chess v3.3</span>
+        <span style="color: #66fcf1; font-weight: bold;">Chess v3.4</span>
     </div>
     <!-- [뷰 1] 로그인 / 회원가입 화면 -->
     <div id="view-auth" class="card auth-box">
@@ -302,6 +302,9 @@
     let timeLeft = 30;
     let timerTurnKey = null;
     let chessAnimating = false;
+    let aiMovePending = false;
+    let animationMoveKey = '';
+    let renderedPositionKey = '';
     let lastAnimatedChessMoveKey = '';
     let whisperTarget = null; 
     window.addEventListener('keydown', async (e) => {
@@ -1206,79 +1209,39 @@
     async function animateRenderedChessMove(move, capture){
         const boardEl=document.getElementById('omok-board');
         if(!boardEl || move.from==null || move.to==null || chessAnimating) return;
-
+        const moveKey=`${currentRoomId}:${move.from}:${move.to}`;
+        if(animationMoveKey===moveKey) return;
         const from=boardEl.querySelector(`.chess-cell:nth-child(${move.from+1})`);
         const to=boardEl.querySelector(`.chess-cell:nth-child(${move.to+1})`);
         if(!from || !to) return;
-
-        // 최종 보드는 이미 도착 칸에 그려져 있습니다.
-        // 따라서 도착 칸의 말 하나만 출발 위치에서 시작하도록 변형한 뒤
-        // 웹 애니메이션으로 도착 위치까지 한 번에 이동시킵니다.
         const moving=to.querySelector('.chess-piece');
         if(!moving) return;
-
-        const fr=from.getBoundingClientRect();
-        const tr=to.getBoundingClientRect();
-        const dx=(fr.left+fr.width/2)-(tr.left+tr.width/2);
-        const dy=(fr.top+fr.height/2)-(tr.top+tr.height/2);
-
+        animationMoveKey=moveKey;
         chessAnimating=true;
         boardEl.classList.add('animating');
-        moving.classList.add('move-arrival');
-        if(capture) moving.classList.add('move-arrival-capture');
-
-        // 기존 전환 효과와 겹치지 않도록 직접 애니메이션을 사용합니다.
-        // 이렇게 하면 상대방 화면에서도 같은 수가 다시 그려져도 두 번째 모션이 생기지 않습니다.
+        const fr=from.getBoundingClientRect(), tr=to.getBoundingClientRect();
+        const dx=fr.left+fr.width/2-(tr.left+tr.width/2);
+        const dy=fr.top+fr.height/2-(tr.top+tr.height/2);
         moving.style.transition='none';
-        moving.style.transform=`translate3d(${dx}px,${dy}px,0) scale(.94)`;
-        moving.style.opacity='0.82';
-
-        // 브라우저가 시작 위치를 확실히 그린 다음 애니메이션을 시작합니다.
+        moving.style.transform=`translate3d(${dx}px,${dy}px,0)`;
+        moving.style.opacity='1';
         await new Promise(requestAnimationFrame);
-        await new Promise(requestAnimationFrame);
-
-        const animation=moving.animate(
-            [
-                {
-                    transform:`translate3d(${dx}px,${dy}px,0) scale(.94)`,
-                    opacity:.82,
-                    filter:'brightness(1.08)'
-                },
-                {
-                    transform:`translate3d(${dx*0.58}px,${dy*0.58}px,0) scale(1.015)`,
-                    opacity:1,
-                    filter:'brightness(1.12)'
-                },
-                {
-                    transform:'translate3d(0,0,0) scale(1)',
-                    opacity:1,
-                    filter:'brightness(1)'
-                }
-            ],
-            {
-                duration:430,
-                easing:'cubic-bezier(.16,1,.3,1)',
-                fill:'forwards'
-            }
-        );
-
+        const animation=moving.animate([
+            {transform:`translate3d(${dx}px,${dy}px,0) scale(.98)`,opacity:1},
+            {transform:`translate3d(${dx*.52}px,${dy*.52}px,0) scale(1.015)`,opacity:1},
+            {transform:'translate3d(0,0,0) scale(1)',opacity:1}
+        ],{duration:480,easing:'cubic-bezier(.22,.8,.2,1)',fill:'forwards'});
         if(capture){
             setTimeout(()=>{
-                if(!document.body.contains(to)) return;
+                if(!document.body.contains(to))return;
                 const burst=document.createElement('span');
-                burst.className='capture-burst';
-                to.appendChild(burst);
+                burst.className='capture-burst';to.appendChild(burst);
                 setTimeout(()=>burst.remove(),500);
-            },230);
+            },210);
         }
-
-        try{ await animation.finished; }catch(e){}
+        try{await animation.finished;}catch(e){}
         animation.cancel();
-        moving.style.transform='';
-        moving.style.opacity='';
-        moving.style.filter='';
-        moving.style.transition='';
-        moving.classList.remove('move-arrival','move-arrival-capture');
+        moving.style.transform='';moving.style.opacity='';moving.style.filter='';moving.style.transition='';
         boardEl.classList.remove('animating');
         chessAnimating=false;
     }
@@ -1292,6 +1255,7 @@
     }
     async function makeChessMove(room,move,promotion='q'){
         if(chessAnimating) return;
+        if(!room || room.status!=='playing' || !move || !Number.isInteger(move.from) || !Number.isInteger(move.to)) return;
         const movingTeam=room.turnTeam;
         const color=movingTeam==='black'?'b':'w';
         const state=room.chessState||{castling:{wK:true,wQ:true,bK:true,bQ:true},enPassant:null,halfmove:0,fullmove:1};
@@ -1336,15 +1300,45 @@
         const promo=move.promotion?await choosePromotion():'q'; await makeChessMove(room,move,promo);
     }
     function checkAndTriggerAiTurn(){
-        if(!currentUser||!currentRoomId)return; const room=globalData.rooms[currentRoomId]; if(!room||room.status!=='playing')return;
-        const isHost=room.hostId===currentUser.id||currentUser.id===ADMIN_ID; if(!isHost)return;
-        const active=Object.values(room.players||{}).find(p=>p.team===room.turnTeam); if(!active||!active.isAi||room.aiThinking)return;
-        room.aiThinking=true; saveSpecificData(ROOM_PATH+'/'+currentRoomId+'/aiThinking',true);
-        setTimeout(async()=>{try{await fetchSystemData();const fresh=globalData.rooms[currentRoomId];if(!fresh||fresh.status!=='playing'||fresh.turnTeam!==room.turnTeam)return;
-            const color=fresh.turnTeam==='black'?'b':'w', state=fresh.chessState, moves=legalMoves(fresh.board,state,color); if(!moves.length)return;
-            let scored=moves.map(m=>{let s=Math.random()*10;const p=fresh.board[m.to];if(p)s+=20;if(m.promotion)s+=15;const r=applyChessMove(fresh.board,state,m,'q');if(isInCheck(r.board,enemy(color)))s+=8;if(isInCheck(r.board,enemy(color))&&!legalMoves(r.board,r.state,enemy(color)).length)s+=10000;return {m,s};});
-            scored.sort((a,b)=>b.s-a.s); await makeChessMove(fresh,scored[0].m,'q');
-        }catch(e){console.error(e);await saveSpecificData(ROOM_PATH+'/'+currentRoomId+'/aiThinking',false);}},900);
+        if(!currentUser||!currentRoomId||aiMovePending)return;
+        const room=globalData.rooms[currentRoomId];
+        if(!room||room.status!=='playing')return;
+        const isHost=room.hostId===currentUser.id||currentUser.id===ADMIN_ID;
+        if(!isHost)return;
+        const active=Object.values(room.players||{}).find(p=>p.team===room.turnTeam);
+        if(!active||!active.isAi||room.aiThinking)return;
+        aiMovePending=true;
+        room.aiThinking=true;
+        saveSpecificData(ROOM_PATH+'/'+currentRoomId+'/aiThinking',true);
+        const expectedTeam=room.turnTeam;
+        setTimeout(async()=>{
+            try{
+                await fetchSystemData();
+                const fresh=globalData.rooms[currentRoomId];
+                if(!fresh||fresh.status!=='playing'||fresh.turnTeam!==expectedTeam)return;
+                const color=fresh.turnTeam==='black'?'b':'w';
+                const state=fresh.chessState||{};
+                const moves=legalMoves(fresh.board,state,color);
+                if(!moves.length)return;
+                let scored=moves.map(m=>{
+                    let score=Math.random()*10;
+                    const target=fresh.board[m.to];
+                    if(target)score+=20;
+                    if(m.promotion)score+=15;
+                    const r=applyChessMove(fresh.board,state,m,'q');
+                    if(isInCheck(r.board,enemy(color)))score+=8;
+                    if(isInCheck(r.board,enemy(color))&&!legalMoves(r.board,r.state,enemy(color)).length)score+=10000;
+                    return {m,s:score};
+                });
+                scored.sort((a,b)=>b.s-a.s);
+                await makeChessMove(fresh,scored[0].m,'q');
+            }catch(e){
+                console.error(e);
+                await saveSpecificData(ROOM_PATH+'/'+currentRoomId+'/aiThinking',false);
+            }finally{
+                aiMovePending=false;
+            }
+        },900);
     }
     function showChessResult(room){
         const wrapper=document.querySelector('.board-wrapper');if(!wrapper)return;
@@ -1467,7 +1461,7 @@
             boardEl.appendChild(cell);
         }
         const moveKey = room.lastMoveAt ? `${currentRoomId}:${room.lastMoveFrom}:${room.lastMove}:${room.lastMoveAt}` : '';
-        if(moveKey && moveKey !== lastAnimatedChessMoveKey && Number.isInteger(room.lastMoveFrom) && Number.isInteger(room.lastMove)){
+        if(moveKey && moveKey !== lastAnimatedChessMoveKey && !chessAnimating && Number.isInteger(room.lastMoveFrom) && Number.isInteger(room.lastMove)){
             lastAnimatedChessMoveKey = moveKey;
             animateRenderedChessMove({from:room.lastMoveFrom,to:room.lastMove}, !!room.lastMoveWasCapture);
         }
