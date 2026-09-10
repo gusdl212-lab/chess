@@ -323,11 +323,11 @@
         }
 
         .chess-cell.move-origin {
-            animation: moveOriginFlash 0.8s ease-out;
+            animation: moveOriginFlash 0.7s ease-out;
         }
 
         .chess-cell.move-destination {
-            animation: moveDestinationFlash 0.8s ease-out;
+            animation: moveDestinationFlash 0.95s cubic-bezier(.2,.8,.2,1);
         }
 
         .chess-piece {
@@ -341,7 +341,8 @@
         }
 
         .chess-piece.animate-move {
-            animation: chessPieceArrive 0.45s cubic-bezier(.2,.8,.2,1);
+            animation: chessPieceArrive 0.52s cubic-bezier(.16,1,.3,1);
+            will-change: transform, opacity, filter;
         }
 
         .white-piece {
@@ -611,22 +612,22 @@
 
         @keyframes chessPieceArrive {
             0% {
-                transform: scale(.58) translateY(-12px);
-                opacity: .2;
-                filter: brightness(1.8);
+                transform: translateY(-7px) scale(.82);
+                opacity: .18;
+                filter: blur(1.2px) brightness(1.45);
             }
-            45% {
-                transform: scale(1.12) translateY(0);
+            35% {
+                transform: translateY(2px) scale(1.06);
                 opacity: 1;
-                filter: brightness(1.35);
+                filter: blur(0) brightness(1.16);
             }
-            75% {
-                transform: scale(.96);
+            70% {
+                transform: translateY(-1px) scale(1.015);
             }
             100% {
-                transform: scale(1);
+                transform: translateY(0) scale(1);
                 opacity: 1;
-                filter: brightness(1);
+                filter: blur(0) brightness(1);
             }
         }
 
@@ -785,7 +786,7 @@
 
     <div class="status-bar">
         <span>🌐 체스 통합 버전 · 합법적인 수만 표시</span>
-        <span style="color:#66fcf1;font-weight:bold;">Chess v2.0 · 로그인 안정화</span>
+        <span style="color:#66fcf1;font-weight:bold;">Chess v2.1 · 로그인 안정화</span>
     </div>
 
     <!-- [뷰 1] 로그인 / 회원가입 -->
@@ -5544,27 +5545,11 @@
             return;
         }
 
-        const verifiedMoves =
-            legalMoves(
-                room.board,
-                state,
-                color,
-                move.from
-            );
-
-        const verifiedMove =
-            verifiedMoves.find(
-                m =>
-                    m.to === move.to &&
-                    !!m.enPassant === !!move.enPassant &&
-                    (m.castle || null) === (move.castle || null)
-            );
-
-        if (!verifiedMove) {
-            return;
-        }
-
-        move = verifiedMove;
+        /*
+         * 앞 단계의 자리 선택에서 이미 합법적인 수를 확인했습니다.
+         * 여기서 다시 전체 판을 재검증하면 온라인 동기화 순간에
+         * 정상적인 수까지 거절될 수 있으므로, 선택된 수를 그대로 적용합니다.
+         */
 
         const piece =
             room.board[
@@ -6711,16 +6696,21 @@
                                     } else {
 
                                         /*
-                                         * 타임아웃 시 자동 수는 두되,
-                                         * 실제 남아 있는 30초 규칙을
-                                         * 기존 방식대로 유지
+                                         * 시간 초과 처리: 패배시키지 않고
+                                         * 합법적인 수 중 하나를 무작위로 자동 진행합니다.
+                                         * AI가 아닌 사람의 차례에서만 실행됩니다.
                                          */
-                                        await finalizeGame(
+                                        const randomMove =
+                                            ms[
+                                                Math.floor(
+                                                    Math.random() * ms.length
+                                                )
+                                            ];
+
+                                        await makeChessMove(
                                             fresh,
-                                            getOpponentTeam(
-                                                fresh.turnTeam
-                                            ),
-                                            'timeout'
+                                            randomMove,
+                                            randomMove.promotion ? 'q' : 'q'
                                         );
                                     }
                                 }
