@@ -116,7 +116,7 @@
     <h1>♟️♙ 멀티 체스 대전 플랫폼</h1>
     <div class="status-bar">
         <span>🌐 체스 통합 버전 · 합법적인 수만 표시</span>
-        <span style="color: #66fcf1; font-weight: bold;">Chess v3.6</span>
+        <span style="color: #66fcf1; font-weight: bold;">Chess v3.7</span>
     </div>
     <!-- [뷰 1] 로그인 / 회원가입 화면 -->
     <div id="view-auth" class="card auth-box">
@@ -1085,6 +1085,8 @@
     function chessColor(p){ return p ? p[0] : null; }
     function chessType(p){ return p ? p[1] : null; }
     function enemy(color){ return color === 'w' ? 'b' : 'w'; }
+    // v3.7 호환: AI 평가/미니맥스에서 사용하는 별칭입니다.
+    function enemyColor(color){ return enemy(color); }
     function rc(i){ return [Math.floor(i/8), i%8]; }
     function idx(r,c){ return r*8+c; }
     function inside8(r,c){ return r>=0 && r<8 && c>=0 && c<8; }
@@ -1301,7 +1303,7 @@
         if(turnTimer){clearInterval(turnTimer);turnTimer=null;}
         const promo=move.promotion?await choosePromotion():'q'; await makeChessMove(room,move,promo);
     }
-    // ===== v3.6 AI 강화: 재료/위치 평가 + 알파베타 미니맥스 =====
+    // ===== v3.7 AI 강화 + 타이머 안정화: 재료/위치 평가 + 알파베타 미니맥스 =====
     const AI_PIECE_VALUE={p:100,n:320,b:330,r:500,q:900,k:20000};
     const AI_PST={
         p:[0,0,0,0,0,0,0,0, 50,50,50,50,50,50,50,50, 10,10,20,30,30,20,10,10, 5,5,10,25,25,10,5,5, 0,0,0,20,20,0,0,0, 5,-5,-10,0,0,-10,-5,5, 5,10,10,-20,-20,10,10,5, 0,0,0,0,0,0,0,0],
@@ -1377,23 +1379,42 @@
         if(!isHost)return;
         const active=Object.values(room.players||{}).find(p=>p.team===room.turnTeam);
         if(!active||!active.isAi||room.aiThinking)return;
-        aiMovePending=true; room.aiThinking=true;
+
+        aiMovePending=true;
+        room.aiThinking=true;
         saveSpecificData(ROOM_PATH+'/'+currentRoomId+'/aiThinking',true);
         const expectedTeam=room.turnTeam, level=active.aiLevel||'중';
+
         setTimeout(async()=>{
             try{
                 await fetchSystemData();
                 const fresh=globalData.rooms[currentRoomId];
                 if(!fresh||fresh.status!=='playing'||fresh.turnTeam!==expectedTeam)return;
                 const color=fresh.turnTeam==='black'?'b':'w';
-                const state=fresh.chessState||{};
-                const move=chooseStrongAiMove(fresh.board,state,color,level);
+                const state=fresh.chessState||{castling:{wK:true,wQ:true,bK:true,bQ:true},enPassant:null,halfmove:0,fullmove:1};
+                let move=null;
+                try{
+                    move=chooseStrongAiMove(fresh.board,state,color,level);
+                }catch(aiErr){
+                    console.error('AI 탐색 오류:',aiErr);
+                }
+                // AI 계산에 문제가 생겨도 게임이 멈추지 않도록 합법적인 수를 최후 보루로 사용합니다.
+                if(!move){
+                    const fallback=legalMoves(fresh.board,state,color);
+                    move=fallback[Math.floor(Math.random()*fallback.length)]||null;
+                }
                 if(move)await makeChessMove(fresh,move,'q');
             }catch(e){
                 console.error('AI 오류:',e);
+            }finally{
                 await saveSpecificData(ROOM_PATH+'/'+currentRoomId+'/aiThinking',false);
-            }finally{aiMovePending=false;}
-        },500);
+                aiMovePending=false;
+                const latest=globalData.rooms[currentRoomId];
+                if(latest&&latest.status==='playing'&&latest.turnTeam===expectedTeam){
+                    latest.aiThinking=false;
+                }
+            }
+        },300);
     }
     function showChessResult(room){
         const wrapper=document.querySelector('.board-wrapper');if(!wrapper)return;
@@ -1439,10 +1460,18 @@
                         clearInterval(turnTimer);turnTimer=null;
                         const host=fresh.hostId===currentUser.id||currentUser.id===ADMIN_ID;
                         const timeoutKey=`${currentRoomId}:${fresh.turnTeam}:${fresh.turnStartedAt||0}`;
-                        if(host&&!freshAi&&timeoutKey===turnKey){
+                        if(host&&timeoutKey===turnKey){
                             timerTurnKey=`${turnKey}:done`;
-                            const cc=fresh.turnTeam==='black'?'b':'w', ms=legalMoves(fresh.board,fresh.chessState||state,cc);
-                            if(ms.length) await makeChessMove(fresh,ms[Math.floor(Math.random()*ms.length)],'q');
+                            const cc=fresh.turnTeam==='black'?'b':'w';
+                            const ms=legalMoves(fresh.board,fresh.chessState||state,cc);
+                            // 사람 턴은 시간 초과 시 자동으로 합법적인 수를 두고,
+                            // AI 턴도 AI 계산이 실패/지연되면 같은 안전장치로 진행시킵니다.
+                            if(ms.length && !aiMovePending){
+                                await makeChessMove(fresh,ms[Math.floor(Math.random()*ms.length)],'q');
+                            }else if(ms.length && freshAi){
+                                aiMovePending=false;
+                                await makeChessMove(fresh,ms[Math.floor(Math.random()*ms.length)],'q');
+                            }
                         }
                     }
                 },1000);
