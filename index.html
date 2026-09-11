@@ -116,7 +116,7 @@
     <h1>♟️♙ 멀티 체스 대전 플랫폼</h1>
     <div class="status-bar">
         <span>🌐 체스 통합 버전 · 합법적인 수만 표시</span>
-        <span style="color: #66fcf1; font-weight: bold;">Chess v3.5</span>
+        <span style="color: #66fcf1; font-weight: bold;">Chess v3.6</span>
     </div>
     <!-- [뷰 1] 로그인 / 회원가입 화면 -->
     <div id="view-auth" class="card auth-box">
@@ -1277,6 +1277,8 @@
         const inCheck=isInCheck(room.board,nextColor);
         const reason=gameEndReason(room.board,nextColor,nextMoves,inCheck,room.chessState);
         let winner=null;
+        // 체크메이트뿐 아니라 '둘 수 있는 수가 없음'도 패배 처리합니다.
+        // 즉, 상대가 더 이상 둘 수 없으면 마지막으로 둔 쪽의 승리입니다.
         if(reason==='checkmate'||reason==='nomoves') winner=movingTeam;
         else if(reason) winner='draw';
         room.winner=winner;room.endReason=reason;room.status=winner?'ended':'playing';
@@ -1299,6 +1301,74 @@
         if(turnTimer){clearInterval(turnTimer);turnTimer=null;}
         const promo=move.promotion?await choosePromotion():'q'; await makeChessMove(room,move,promo);
     }
+    // ===== v3.6 AI 강화: 재료/위치 평가 + 알파베타 미니맥스 =====
+    const AI_PIECE_VALUE={p:100,n:320,b:330,r:500,q:900,k:20000};
+    const AI_PST={
+        p:[0,0,0,0,0,0,0,0, 50,50,50,50,50,50,50,50, 10,10,20,30,30,20,10,10, 5,5,10,25,25,10,5,5, 0,0,0,20,20,0,0,0, 5,-5,-10,0,0,-10,-5,5, 5,10,10,-20,-20,10,10,5, 0,0,0,0,0,0,0,0],
+        n:[-50,-40,-30,-30,-30,-30,-40,-50, -40,-20,0,5,5,0,-20,-40, -30,5,10,15,15,10,5,-30, -30,0,15,20,20,15,0,-30, -30,5,15,20,20,15,5,-30, -30,0,10,15,15,10,0,-30, -40,-20,0,0,0,0,-20,-40, -50,-40,-30,-30,-30,-30,-40,-50],
+        b:[-20,-10,-10,-10,-10,-10,-10,-20, -10,5,0,0,0,0,5,-10, -10,10,10,10,10,10,10,-10, -10,0,10,10,10,10,0,-10, -10,5,5,10,10,5,5,-10, -10,0,5,10,10,5,0,-10, -10,0,0,0,0,0,0,-10, -20,-10,-10,-10,-10,-10,-10,-20],
+        r:[0,0,0,5,5,0,0,0, -5,0,0,0,0,0,0,-5, -5,0,0,0,0,0,0,-5, -5,0,0,0,0,0,0,-5, -5,0,0,0,0,0,0,-5, -5,0,0,0,0,0,0,-5, 5,10,10,10,10,10,10,5, 0,0,0,0,0,0,0,0],
+        q:[-20,-10,-10,-5,-5,-10,-10,-20, -10,0,5,0,0,0,0,-10, -10,5,5,5,5,5,0,-10, 0,0,5,5,5,5,0,-5, -5,0,5,5,5,5,0,-5, -10,0,5,5,5,5,0,-10, -10,0,0,0,0,0,0,-10, -20,-10,-10,-5,-5,-10,-10,-20],
+        k:[-30,-40,-40,-50,-50,-40,-40,-30, -30,-40,-40,-50,-50,-40,-40,-30, -30,-40,-40,-50,-50,-40,-40,-30, -30,-40,-40,-50,-50,-40,-40,-30, -20,-30,-30,-40,-40,-30,-30,-20, -10,-20,-20,-20,-20,-20,-20,-10, 20,20,0,0,0,0,20,20, 20,30,10,0,0,10,30,20]
+    };
+    function aiEvalBoard(board,state,color){
+        let score=0;
+        for(let i=0;i<64;i++){
+            const p=board[i]; if(!p)continue;
+            const t=chessType(p),v=AI_PIECE_VALUE[t]||0, own=chessColor(p)===color;
+            const idx=own?i:63-i;
+            score+=(own?1:-1)*(v+(AI_PST[t]?.[idx]||0));
+        }
+        const enemy=enemyColor(color);
+        const myMob=legalMoves(board,state,color).length;
+        const opMob=legalMoves(board,state,enemy).length;
+        score+=(myMob-opMob)*3;
+        if(isInCheck(board,color))score-=35;
+        if(isInCheck(board,enemy))score+=35;
+        return score;
+    }
+    function aiMoveScore(board,state,move,color){
+        let s=0;
+        const target=board[move.to];
+        if(target)s+=(AI_PIECE_VALUE[chessType(target)]||0)*10-(AI_PIECE_VALUE[chessType(board[move.from])]||0);
+        if(move.promotion)s+=900;
+        const res=applyChessMove(board,state,move,'q');
+        const enemy=enemyColor(color), next=legalMoves(res.board,res.state,enemy);
+        if(isInCheck(res.board,enemy))s+=60;
+        if(!next.length)s+=isInCheck(res.board,enemy)?100000:50000;
+        return s;
+    }
+    function aiMinimax(board,state,color,rootColor,depth,alpha,beta){
+        const moves=legalMoves(board,state,color);
+        if(!moves.length){
+            if(isInCheck(board,color))return color===rootColor?-100000-depth:100000+depth;
+            return color===rootColor?-50000:50000;
+        }
+        if(depth<=0)return aiEvalBoard(board,state,rootColor);
+        moves.sort((a,b)=>aiMoveScore(board,state,b,color)-aiMoveScore(board,state,a,color));
+        const maximizing=color===rootColor;
+        let best=maximizing?-Infinity:Infinity;
+        for(const m of moves){
+            const r=applyChessMove(board,state,m,'q');
+            const val=aiMinimax(r.board,r.state,enemyColor(color),rootColor,depth-1,alpha,beta);
+            if(maximizing){best=Math.max(best,val);alpha=Math.max(alpha,val);}else{best=Math.min(best,val);beta=Math.min(beta,val);}
+            if(beta<=alpha)break;
+        }
+        return best;
+    }
+    function chooseStrongAiMove(board,state,color,level){
+        const moves=legalMoves(board,state,color); if(!moves.length)return null;
+        const depth=level==='상'?3:level==='중'?2:1;
+        let best=-Infinity,bestMoves=[];
+        const ordered=[...moves].sort((a,b)=>aiMoveScore(board,state,b,color)-aiMoveScore(board,state,a,color));
+        for(const m of ordered){
+            const r=applyChessMove(board,state,m,'q');
+            let score=aiMinimax(r.board,r.state,enemyColor(color),color,depth-1,-Infinity,Infinity);
+            score+=aiMoveScore(board,state,m,color);
+            if(score>best){best=score;bestMoves=[m];}else if(score===best)bestMoves.push(m);
+        }
+        return bestMoves[Math.floor(Math.random()*bestMoves.length)]||ordered[0];
+    }
     function checkAndTriggerAiTurn(){
         if(!currentUser||!currentRoomId||aiMovePending)return;
         const room=globalData.rooms[currentRoomId];
@@ -1307,10 +1377,9 @@
         if(!isHost)return;
         const active=Object.values(room.players||{}).find(p=>p.team===room.turnTeam);
         if(!active||!active.isAi||room.aiThinking)return;
-        aiMovePending=true;
-        room.aiThinking=true;
+        aiMovePending=true; room.aiThinking=true;
         saveSpecificData(ROOM_PATH+'/'+currentRoomId+'/aiThinking',true);
-        const expectedTeam=room.turnTeam;
+        const expectedTeam=room.turnTeam, level=active.aiLevel||'중';
         setTimeout(async()=>{
             try{
                 await fetchSystemData();
@@ -1318,41 +1387,30 @@
                 if(!fresh||fresh.status!=='playing'||fresh.turnTeam!==expectedTeam)return;
                 const color=fresh.turnTeam==='black'?'b':'w';
                 const state=fresh.chessState||{};
-                const moves=legalMoves(fresh.board,state,color);
-                if(!moves.length)return;
-                let scored=moves.map(m=>{
-                    let score=Math.random()*10;
-                    const target=fresh.board[m.to];
-                    if(target)score+=20;
-                    if(m.promotion)score+=15;
-                    const r=applyChessMove(fresh.board,state,m,'q');
-                    if(isInCheck(r.board,enemy(color)))score+=8;
-                    if(isInCheck(r.board,enemy(color))&&!legalMoves(r.board,r.state,enemy(color)).length)score+=10000;
-                    return {m,s:score};
-                });
-                scored.sort((a,b)=>b.s-a.s);
-                await makeChessMove(fresh,scored[0].m,'q');
+                const move=chooseStrongAiMove(fresh.board,state,color,level);
+                if(move)await makeChessMove(fresh,move,'q');
             }catch(e){
-                console.error(e);
+                console.error('AI 오류:',e);
                 await saveSpecificData(ROOM_PATH+'/'+currentRoomId+'/aiThinking',false);
-            }finally{
-                aiMovePending=false;
-            }
-        },900);
+            }finally{aiMovePending=false;}
+        },500);
     }
     function showChessResult(room){
         const wrapper=document.querySelector('.board-wrapper');if(!wrapper)return;
         const old=wrapper.querySelector('.game-result-overlay');if(old)old.remove();
         if(room.status!=='ended')return;
         const reason=room.endReason||'gameover';
-        const isDraw=room.winner==='draw';
+        // 구버전에서 '둘 수 있는 수가 없음(nomoves)'을 draw로 잘못 저장한 판도 승리로 복구합니다.
+        let winner=room.winner;
+        if(reason==='nomoves'&&winner==='draw') winner=room.turnTeam==='black'?'white':'black';
+        const isDraw=winner==='draw';
         const isMate=reason==='checkmate';
         const isNoMoveLoss=reason==='nomoves';
         const el=document.createElement('div');el.className='game-result-overlay';
         const card=document.createElement('div');card.className='game-result-card '+(isMate?'mate':isDraw?'draw':'');
         let title=isMate?'♚ 체크메이트!':isNoMoveLoss?'🏆 승리!':isDraw?'🤝 무승부':'🏆 게임 종료';
-        let detail=isMate?`${room.winner==='black'?'흑':'백'} 승리`:
-            isNoMoveLoss?`${room.winner==='black'?'흑':'백'} 승리 — ${room.winner==='black'?'백':'흑'}은 둘 수 있는 수가 없어 패배했습니다.`:
+        let detail=isMate?`${winner==='black'?'흑':'백'} 승리`:
+            isNoMoveLoss?`${winner==='black'?'흑':'백'} 승리 — ${winner==='black'?'백':'흑'}은 둘 수 있는 수가 없어 패배했습니다.`:
             (reason==='draw50'?'50수 규칙으로 무승부입니다.':reason==='insufficient'?'체크메이트가 불가능한 기물 구성으로 무승부입니다.':'게임이 종료되었습니다.');
         card.innerHTML=`<h2>${title}</h2><p>${detail}</p><p style="font-size:12px;color:#9fb3c8">승패가 최종 처리되었습니다.</p>`;el.appendChild(card);wrapper.appendChild(el);
     }
